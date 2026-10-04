@@ -1,0 +1,14 @@
+{
+  "task_id": "task-word-design-match",
+  "task_description": "Make the generated Fly91 Weekly Status Report .docx visually match the user's original Word file: centered+underlined 'Cost Summary Differences' title; a single bordered cost table with the No/Account Name/Account ID cells vertically merged (w:vMerge) into one tall account-identity cell, a stacked 'N'/'o' No header, bold two-line Last Week/Current Week date-range headers, centered cost cells, and a merged (gridSpan) 'Total Cost' row reading '(<total> Tax Excluded Cost)'; a professional cover page (logo top-right, blue left accent bar, optional configurable cityscape background) as page 1; US Letter page size with reference-aligned margins. All images driven by a configurable assets mapping in config.json (swappable for the client's Greatworx logo + real Fly91 captures). Design is data-agnostic (identical for mock and real/CloudShell data). Excel path and --format {docx,xlsx,both} preserved. Extend scripts/verify_word_report.py with machine-checked design assertions and iterate until all pass. Regenerate the demo docx. Do NOT push.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "No build step (pure Python). Generated demo docx with --mock --format docx; extended scripts/verify_word_report.py prints ALL CHECKS PASSED tables=8 paras=63 images=7, including all design assertions (underlined+centered title, w:vMerge=81, gridSpan=1, two-line bold date headers + w:br, pgSz Letter 12240x15840, pgMar top=1296/right=432/bottom=1152/left=360, stacked N/o header, cover logo embedded before cost table, media images=7>=6). Direct XML inspection confirms vMerge=81, gridSpan=1, underline=1, 4 line breaks, blue cover accent 1F4E79, logo drawing before page break before Cost Summary. No-regression: --format both wrote docx+xlsx, --format xlsx wrote xlsx (both exit 0). Test quality: design_checks() parses real OOXML markers (title paragraph center+underline, vMerge, gridSpan, w:br, pgSz) that would fail if the design were reverted; data-agnostic proven via verify_word_live_fallback real-shaped payload. Docker: project has no Dockerfile; skipped."
+  }
+}

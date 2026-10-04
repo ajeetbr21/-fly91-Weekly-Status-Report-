@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Environment setup and baseline. Install dependencies, confirm the existing Word+Excel generation and current verifier pass BEFORE any design changes, and confirm the asset files are in place. Establishes a green baseline so later design changes are provably additive and the Excel path is known-good.",
+  "status": "completed",
+  "steps": [
+    "Run: pip install -r requirements.txt (Python 3.9.25). Confirm python-docx, Pillow, matplotlib, openpyxl import.",
+    "Confirm the stable-named asset files exist (already created by the architect): assets/logo.png, assets/screenshots_cost_overview.png, assets/screenshots_inspector_critical.png, assets/screenshots_inspector_high.png, assets/screenshots_inspector_medium.png, assets/screenshots_inspector_low.png, assets/screenshots_guardduty.png, and the raw assets/reference_images/ set. If any stable-named asset is missing, recreate it by copying from assets/reference_images/ (logo<-image1.png, cost_overview<-image9.png, inspector_critical<-image13.png, inspector_high<-image15.png, inspector_medium<-image17.png, inspector_low<-image19.png, guardduty<-image21.png).",
+    "Run the baseline generate: python3 weekly_bau_report.py --start-date 2026-09-14 --end-date 2026-09-20 --mock --format docx --output /tmp/baseline.docx  and confirm it exits 0.",
+    "Run the current verifier: python3 scripts/verify_word_report.py /tmp/baseline.docx  and confirm ALL CHECKS PASSED (record the counts).",
+    "Run the Excel baseline: python3 weekly_bau_report.py --start-date 2026-09-14 --end-date 2026-09-20 --mock --format both --output /tmp/baseline_both.docx  and confirm both a .docx and the sibling .xlsx are produced (xlsx no-regression baseline).",
+    "Record exact commands/outputs in this feature's findings."
+  ],
+  "acceptance_criteria": [
+    "pip install -r requirements.txt completes without error",
+    "python3 weekly_bau_report.py ... --format docx exits 0 and writes the docx",
+    "python3 scripts/verify_word_report.py on the baseline docx prints 'ALL CHECKS PASSED'",
+    "--format both produces both a .docx and an .xlsx"
+  ],
+  "verification": [
+    "pip install -r requirements.txt",
+    "python3 weekly_bau_report.py --start-date 2026-09-14 --end-date 2026-09-20 --mock --format docx --output /tmp/baseline.docx",
+    "python3 scripts/verify_word_report.py /tmp/baseline.docx",
+    "python3 weekly_bau_report.py --start-date 2026-09-14 --end-date 2026-09-20 --mock --format both --output /tmp/baseline_both.docx"
+  ],
+  "blocked_reason": null,
+  "findings": "BASELINE GREEN. Env: Python 3.9.25; `pip install -r requirements.txt` completed with all requirements already satisfied (python-docx 1.2.0, Pillow 11.3.0, matplotlib 3.9.4, openpyxl 3.1-series, boto3/botocore). Imports verified: `import docx, PIL, matplotlib, openpyxl` OK.\n\nStep 1 (deps): PASS.\nStep 2 (assets): PASS. All 7 stable-named assets already present under assets/ (logo.png, screenshots_cost_overview.png, screenshots_inspector_critical.png, screenshots_inspector_high.png, screenshots_inspector_medium.png, screenshots_inspector_low.png, screenshots_guardduty.png) plus assets/reference_images/ containing exactly 48 PNGs. No recreation/copy needed.\nStep 3 (generate docx): `python3 weekly_bau_report.py --start-date 2026-09-14 --end-date 2026-09-20 --mock --format docx --output <tmp>/baseline.docx` -> exit 0, wrote 197529-byte docx.\nStep 4 (verify): `python3 scripts/verify_word_report.py <tmp>/baseline.docx` -> exit 0, 'ALL CHECKS PASSED  tables=7 paras=56 images=5'. (All 58 individual checks PASS; images=5 are the runtime Inspector x4 + GuardDuty screenshots; NO cover logo image yet -> this is the pre-design baseline the architect notes as media_baseline=5.)\nStep 5 (format both): `python3 weekly_bau_report.py ... --mock --format both --output <tmp>/baseline_both.docx` -> exit 0; produced the docx (197529 bytes) AND a valid .xlsx. NOTE: the xlsx is written to the config-driven default name 'Weekly_AWS_BAU_Report.xlsx' in the CWD (not a sibling of the --output docx path); it is a valid zip/xlsx. Removed the stray xlsx after verifying to keep the tree clean (*.xlsx is gitignored anyway).\n\nBASELINE COUNTS FOR REGRESSION DETECTION: tables=7, paras=56, images=5. Target after FEAT-002 design work per architect notes: images>=6 (cover logo added), plus new design assertions (vMerge, underlined centered title, gridSpan Total Cost row, two-line bold date headers, pgSz Letter 12240x15840).\n\nSANDBOX QUIRK (important for later features): /tmp does NOT persist between separate execute_bash invocations in this sandbox - a file written in one bash call is gone in the next. Generate+verify must run in the SAME bash session (chained), or write generated docx into the workspace (demo/ or similar). *.docx/*.xlsx/*.png are gitignored, so workspace-generated outputs stay untracked unless force-added.\n\nSCOPE: Did NOT modify report/word_report.py, scripts/, or config.json. config.json already carried an additive word_report.assets mapping (pre-existing architect change, untouched by me) which the current word_report.py does not yet consume - that is FEAT-002's job."
+}

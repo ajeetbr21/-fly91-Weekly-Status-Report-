@@ -253,7 +253,18 @@ Edit `config.json` to customize the report:
         "submitted_by_label": "Submitted By",
         "submitter_org": "Greatworx",
         "activity_org": "Greatworx",
-        "word_output_filename": "Weekly_Status_Report.docx"
+        "disclaimer_org": "Greatworx",
+        "word_output_filename": "Weekly_Status_Report.docx",
+        "assets": {
+            "logo": "assets/logo.png",
+            "cover_background": "assets/cover_background.png",
+            "cost_overview": "assets/screenshots_cost_overview.png",
+            "inspector_critical": "assets/screenshots_inspector_critical.png",
+            "inspector_high": "assets/screenshots_inspector_high.png",
+            "inspector_medium": "assets/screenshots_inspector_medium.png",
+            "inspector_low": "assets/screenshots_inspector_low.png",
+            "guardduty": "assets/screenshots_guardduty.png"
+        }
     },
     "regions": ["us-east-1"],
     "thresholds": {
@@ -322,6 +333,81 @@ driven by the SAME `collected_data` as the Excel report
 - The Amazon Inspector / Guard Duty console screenshots are rendered from the
   finding data with Pillow; they are embedded images, not account-specific
   captures.
+
+### Design-matched Word report (cover, cost table, assets)
+
+The Word report is built to **visually match the client's original Word file**:
+
+- **Cover page (page 1):** the company **logo top-right**, a **blue vertical
+  accent bar** down the left edge, and the large report title. If an optional
+  `assets/cover_background.png` (a full-page cityscape) is present it is placed
+  as a behind-text background; see the limitation note below.
+- **"Cost Summary Differences" page:** a **centered, underlined** title; a single
+  bordered table whose `No` / `Account Name` / `Account ID` cells are
+  **vertically merged** (one tall account-identity cell showing `1`, the account
+  name, and `674351849978`) spanning all service rows; a **stacked `N`/`o`** `No`
+  header; **bold two-line** `Last Week` / `Current Week` headers carrying the
+  reporting-period date ranges on the second line; centered cost cells; and a
+  final **`Total Cost`** row whose leading columns are **merged** into one
+  centered bold cell, with the cost columns reading
+  `($728.33 Tax Excluded Cost)` / `($705.25 Tax Excluded Cost)`.
+- **Page size** is **US Letter** (`12240 x 15840` twips) with tightened,
+  reference-aligned margins (left `0.25"`, right `0.3"`, top `0.9"`,
+  bottom `0.8"`).
+
+#### Running on REAL AWS data (AWS CloudShell)
+
+The **design is data-agnostic** — the cover, table merges, fonts and page size
+render **identically for mock and real data**; only the cell *values* come from
+the collected data. In AWS CloudShell, with valid AWS credentials, drop the
+`--mock` flag:
+
+```bash
+# Word only, from live AWS data
+python3 weekly_bau_report.py --start-date 2026-09-14 --end-date 2026-09-20 \
+    --format docx --output Fly91_Weekly_Status_Report.docx
+
+# Both Excel and Word, from live AWS data
+python3 weekly_bau_report.py --start-date 2026-09-14 --end-date 2026-09-20 \
+    --format both
+```
+
+The same layout you see in `--mock` is produced from the live account; verify
+with `python3 scripts/verify_word_report.py <docx> --min-images 7`.
+
+#### Swapping the logo and screenshots (no code change)
+
+All embedded images are driven by a configurable
+**`word_report.assets`** mapping in `config.json` (logical name → path). The
+shipped sample logo (`assets/logo.png`) and the Inspector / GuardDuty / Cost
+Explorer captures under `assets/` come from the **Operisoft / Aptech reference
+sample** and should be **replaced with the client's own Greatworx logo and real
+Fly91 console captures**. Two ways to swap:
+
+1. Edit the paths under `word_report.assets` in `config.json`, or
+2. Drop replacement files at the default paths (`assets/logo.png`,
+   `assets/screenshots_inspector_critical.png`, …).
+
+| Asset key | Default path | Used for |
+|---|---|---|
+| `logo` | `assets/logo.png` | Cover logo (top-right) |
+| `cover_background` | `assets/cover_background.png` | Optional full-page cover background (not shipped) |
+| `cost_overview` | `assets/screenshots_cost_overview.png` | Cost Explorer overview under the cost table |
+| `inspector_critical/high/medium/low` | `assets/screenshots_inspector_*.png` | Amazon Inspector per-severity captures |
+| `guardduty` | `assets/screenshots_guardduty.png` | Amazon GuardDuty capture |
+
+Any asset whose file is **absent degrades gracefully**: the report still
+generates, falling back to the runtime Pillow-rendered console screenshots for
+Inspector / GuardDuty and simply omitting the logo / background.
+
+> ⚠️ **Cover background limitation.** `assets/cover_background.png` (the
+> cityscape shown in the client's original) is **NOT shipped** — it is not part
+> of the reference material. If you want that look, supply your own image at
+> that path. Note that python-docx cannot produce a true print **full-bleed**
+> page background; the image is anchored as a behind-text drawing sized to the
+> Letter page, which is a close approximation but may not bleed to the physical
+> paper edge. Without the file, the cover renders cleanly with the logo + blue
+> accent bar + title only.
 
 ---
 

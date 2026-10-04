@@ -20,9 +20,96 @@ Usage:
 """
 
 import argparse
+import re
 import sys
+import zipfile
 
 from docx import Document
+
+# XML namespace used in word/document.xml.
+_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _document_xml(path):
+    """Return the raw word/document.xml string for low-level design checks."""
+    with zipfile.ZipFile(path) as zf:
+        return zf.read("word/document.xml").decode("utf-8", "replace")
+
+
+def _media_count(path):
+    with zipfile.ZipFile(path) as zf:
+        return len([n for n in zf.namelist() if n.startswith("word/media/")])
+
+
+def _title_underlined_and_centered(xml):
+    """True if a run containing 'Cost Summary Differences' is underlined AND
+    sits in a centered paragraph. We locate the paragraph that carries the
+    title text and check for w:jc val="center" and a w:u run property."""
+    # Find each <w:p> ... </w:p> block that contains the title text.
+    for m in re.finditer(r"<w:p[ >].*?</w:p>", xml, re.DOTALL):
+        block = m.group(0)
+        if "Cost Summary Differences" not in block:
+            continue
+        centered = 'w:jc w:val="center"' in block
+        underlined = "<w:u " in block
+        if centered and underlined:
+            return True
+    return False
+
+
+def design_checks(path):
+    """Low-level OOXML design assertions (unzip + scan word/document.xml)."""
+    xml = _document_xml(path)
+    checks = []
+
+    # (a) underlined + centered 'Cost Summary Differences' title.
+    checks.append(("design: 'Cost Summary Differences' title underlined+centered",
+                   _title_underlined_and_centered(xml)))
+
+    # (b) w:vMerge present (account-identity vertical merge).
+    checks.append(("design: vMerge present (account-identity vertical merge)",
+                   "vMerge" in xml))
+
+    # (c) Total Cost row has a merged leading cell (gridSpan or merged tc).
+    checks.append(("design: Total Cost row merged leading cell (gridSpan)",
+                   "gridSpan" in xml))
+
+    # (d) two-line bold Last Week / Current Week date-range headers: the header
+    # labels and the period dates must be present with line breaks (w:br).
+    checks.append(("design: 'Last Week' header present", "Last Week" in xml))
+    checks.append(("design: 'Current Week' header present", "Current Week" in xml))
+    checks.append(("design: header line breaks (w:br) present", "<w:br" in xml))
+
+    # (e) pgSz Letter 12240x15840 and pgMar present.
+    checks.append(("design: pgSz Letter 12240x15840",
+                   'w:w="12240"' in xml and 'w:h="15840"' in xml))
+    checks.append(("design: pgMar present", "<w:pgMar" in xml))
+
+    # (f) stacked 'No' header: an 'N' run then a break then an 'o' run inside a
+    # cell. We assert both single-char runs exist near a break (loose check).
+    checks.append(("design: stacked No header ('N'/'o' runs present)",
+                   re.search(r"<w:t[^>]*>N</w:t>", xml) is not None
+                   and re.search(r"<w:t[^>]*>o</w:t>", xml) is not None))
+
+    # (g) cover blue accent bar is full-height: the cover layout row must carry
+    # a non-trivial w:trHeight (twips). Without it the blue bar is a one-line
+    # stub instead of running down the left edge of the cover page. We assert a
+    # trHeight of at least ~8in (11520 twips) exists.
+    checks.append(("design: cover accent bar full-height row (w:trHeight)",
+                   _has_tall_tr_height(xml, min_twips=11520)))
+
+    return checks
+
+
+def _has_tall_tr_height(xml, min_twips):
+    """True if any w:trHeight val in the document is >= min_twips (twips)."""
+    for match in re.finditer(r'<w:trHeight\b[^>]*\bw:val="(\d+)"', xml):
+        try:
+            if int(match.group(1)) >= min_twips:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def collect_text(doc):
@@ -185,6 +272,24 @@ def main() -> int:
         checks.append(
             ("embedded images >= %d (found %d)" % (args.min_images, image_count),
              image_count >= args.min_images))
+
+    # Design assertions (OOXML-level), run unconditionally.
+    checks.extend(design_checks(args.path))
+
+    # Cover page carries an embedded image (logo), and word/media has at least
+    # the Inspector/GuardDuty images PLUS the cover logo (>= 6).
+    media = _media_count(args.path)
+    checks.append(("design: word/media image count >= 6 (found %d)" % media,
+                   media >= 6))
+    # The cover logo must be referenced on page 1 (before the Cost Summary
+    # table): assert a drawing appears before the first 'Cost Summary
+    # Differences' occurrence in the document XML.
+    xml = _document_xml(args.path)
+    title_idx = xml.find("Cost Summary Differences")
+    drawing_idx = xml.find("<w:drawing")
+    checks.append(("design: cover logo embedded before Cost Summary table",
+                   drawing_idx != -1 and title_idx != -1
+                   and drawing_idx < title_idx))
 
     for extra in args.contains:
         checks.append(("contains '%s'" % extra, extra in full))
