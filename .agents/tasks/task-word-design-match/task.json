@@ -1,0 +1,7 @@
+{
+  "task_id": "task-word-design-match",
+  "task_description": "Make the generated Fly91 Weekly Status Report .docx visually match the user's original Word file: centered+underlined 'Cost Summary Differences' title; a single bordered cost table with the No/Account Name/Account ID cells vertically merged (w:vMerge) into one tall account-identity cell, a stacked 'N'/'o' No header, bold two-line Last Week/Current Week date-range headers, centered cost cells, and a merged (gridSpan) 'Total Cost' row reading '(<total> Tax Excluded Cost)'; a professional cover page (logo top-right, blue left accent bar, optional configurable cityscape background) as page 1; US Letter page size with reference-aligned margins. All images driven by a configurable assets mapping in config.json (swappable for the client's Greatworx logo + real Fly91 captures). Design is data-agnostic (identical for mock and real/CloudShell data). Excel path and --format {docx,xlsx,both} preserved. Extend scripts/verify_word_report.py with machine-checked design assertions and iterate until all pass. Regenerate the demo docx. Do NOT push.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
