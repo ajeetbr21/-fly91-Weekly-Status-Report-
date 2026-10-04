@@ -10,6 +10,7 @@
         "submitted_by_label": "Submitted By",
         "submitter_org": "Greatworx",
         "activity_org": "Greatworx",
+        "disclaimer_org": "Greatworx",
         "word_output_filename": "Weekly_Status_Report.docx"
     },
     "regions": ["us-east-1"],

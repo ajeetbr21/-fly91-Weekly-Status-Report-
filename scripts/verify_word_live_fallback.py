@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """
-Standalone verification for the Word report's LIVE single-account fallback.
+Standalone verification for the Word report's LIVE data path.
 
-The mock run and scripts/verify_word_report.py both exercise the fully
-populated ``collected_data["word_accounts"]`` path. This script instead feeds
-``WordReport`` a payload shaped like REAL collected data (no ``word_accounts``
-and no ``config.word_report.accounts``), so it drives:
+The mock run and scripts/verify_word_report.py exercise the full mock
+``collected_data`` with the reference-aligned ``cost.per_service`` breakdown.
+This script instead feeds ``WordReport`` a payload shaped like REAL collected
+data WITHOUT the explicit ``per_service`` list (and without any legacy
+``word_accounts``), so it drives the live fallbacks:
 
-  * ``WordReport._resolve_accounts`` tier 3 -- synthesising a single account
-    from the real ``cost`` dict (current_week_total / previous_week_total /
-    avg_daily_cost / difference), and
-  * ``WordReport._alarms_from_ec2`` -- turning an EC2 instance whose
-    ``cpu_max`` exceeds ``thresholds.cpu_warning`` into a CPU-proxy alarm row.
+  * the Cost Summary Differences table derives its per-service rows from the
+    live ``cost.service_breakdown`` (service / cost / difference), and still
+    renders a Total Cost row from ``current_week_total`` / ``previous_week_total``;
+  * the EC2 / RDS / ELB / WAF tables render from the live resource lists; and
+  * the Amazon Inspector + Guard Duty summaries render from the live finding
+    counts.
 
-It then loads the generated .docx back with python-docx and asserts that the
-single per-account Summary section renders the synthesised account (via its
-"<name> - <account_id>" header line) and that the CPU-proxy alarm row is
-present. The report is single-account scoped, so the multi-account "Cost
-Summary Difference of All AWS Accounts" fleet table must NOT appear.
+It then loads the generated .docx back with python-docx and asserts that all
+the reference sections render. The rebuilt report is single-account scoped, so
+the obsolete multi-account "Cost Summary Difference of All AWS Accounts" fleet
+table must NOT appear.
 
 Usage:
     python3 scripts/verify_word_live_fallback.py [--keep <out.docx>]
@@ -42,43 +43,112 @@ from report.word_report import WordReport
 
 
 def _build_fixture_config():
-    """A config WITHOUT word_report.accounts, forcing the tier-3 fallback."""
+    """A config WITHOUT any word_report.accounts and with a custom
+    disclaimer org, so the live path and the configurable disclaimer are both
+    exercised."""
     return {
-        "client_name": "Fly91 Primary",
-        "aws_account_id": "123456789012",
+        "client_name": "JUST UDO AVIATION PRIVATE LIMITED (Fly91)",
+        "aws_account_id": "674351849978",
         "thresholds": {"cpu_warning": 70, "cpu_critical": 90},
         "word_report": {
-            "client_org": "Aptech Limited",
-            "submitter_org": "Operisoft Technologies Pvt Ltd",
-            "activity_org": "Operisoft",
-            # NOTE: deliberately no "accounts" key -> tier-3 live fallback.
+            "client_org": "JUST UDO AVIATION PRIVATE LIMITED (Fly91)",
+            "submitter_org": "Greatworx",
+            "activity_org": "Greatworx",
+            "disclaimer_org": "Greatworx",
         },
     }
 
 
 def _build_live_shaped_data():
-    """A payload shaped like real collected data (no word_accounts)."""
+    """A payload shaped like real collected data (no per_service, no
+    word_accounts)."""
     return {
         "cost": {
-            "current_week_total": 1234.56,
-            "previous_week_total": 1500.00,
-            "avg_daily_cost": 176.37,
-            "difference": -265.44,
+            "current_week_total": 705.25,
+            "previous_week_total": 728.33,
+            "difference": -23.08,
+            "pct_change": -3.17,
+            "avg_daily_cost": 100.75,
+            # Live-shaped service breakdown (service / cost / difference). The
+            # Word report derives last-week = cost - difference per service.
+            "service_breakdown": [
+                {"service": "Elastic Load Balancing", "cost": 106.97, "difference": -13.65},
+                {"service": "Relational Database Service", "cost": 73.68, "difference": -6.83},
+                {"service": "CloudWatch", "cost": 77.64, "difference": -1.10},
+                {"service": "WAF", "cost": 11.70, "difference": -0.96},
+                {"service": "Inspector", "cost": 7.85, "difference": 0.00},
+                {"service": "GuardDuty", "cost": 12.52, "difference": -0.12},
+                {"service": "EC2-Other", "cost": 86.43, "difference": 0.24},
+            ],
         },
         "ec2": [
             {
-                "name": "web-prod-01",
-                "instance_id": "i-0abc123def4567890",
-                "region": "us-east-1",
-                "cpu_max": 92.4,  # exceeds cpu_warning (70) -> alarm row
+                "name": "FLY91- Production Website",
+                "instance_id": "i-056b66d8b569a4a26",
+                "instance_type": "r6a.xlarge",
+                "state": "running",
+                "region": "ap-south-1",
+                "cpu_min": 2.79, "cpu_max": 77.11, "cpu_avg": 8.87,
+                "memory_avg_display": "48.23", "disk_utilization": "49.0%",
+                "network_in": 634 * 1024 * 1024, "network_out": 855 * 1024 * 1024,
+                "network_packets_in": 446270, "network_packets_out": 169120,
             },
             {
-                "name": "idle-box",
-                "instance_id": "i-0idlecafe00000001",
-                "region": "us-east-1",
-                "cpu_max": 12.0,  # below threshold -> NO alarm row
+                "name": "FLY91-Website-testing",
+                "instance_id": "i-0d0653d04b9306f42",
+                "instance_type": "r6a.large",
+                "state": "stopped",
+                "region": "ap-south-1",
+                "cpu_min": None, "cpu_max": None, "cpu_avg": None,
+                "disk_utilization": None,
+                "network_in": None, "network_out": None,
+                "network_packets_in": None, "network_packets_out": None,
             },
         ],
+        "elb": [
+            {
+                "name": "Prod-Fly91-ALB",
+                "requests": 25000, "active_connections": 4360,
+                "new_connections": 8560, "consumed_lcus": 3.08,
+                "http_redirect_count": 218,
+                "processed_bytes": int(3.08 * 1024 * 1024 * 1024),
+                "target_response_time": 0.3228,
+            },
+        ],
+        "waf": [
+            {
+                "name": "Prod-WAF-Fly-91",
+                "total_requests": 9150000, "blocked_requests": 88720,
+                "allowed_requests": 9060000,
+            },
+        ],
+        "rds": [
+            {
+                "name": "fly91-prod-psql-db",
+                "down_time": "No", "instance_type": "db.t3.large",
+                "min_utilization": "5.92%", "max_utilization": "100.0%",
+                "avg_utilization": "43.76%", "free_memory": "4.35GB out of 8 GB",
+                "free_storage": "9.0GB out of 100 GB",
+                "network_transmit_throughput": "9.79 MB",
+                "network_receive_throughput": "2.21 MB",
+                "max_db_connections": 210,
+            },
+        ],
+        "inspector": {
+            "date_range": "2026-09-14 to 2026-09-20",
+            "severity_counts": {"CRITICAL": 39, "HIGH": 200, "MEDIUM": 200,
+                                "LOW": 15, "UNTRIAGED": 10},
+            "total_findings": 464,
+            "total_display": "400+",
+            "severity_display": {"CRITICAL": "39", "HIGH": "200+",
+                                 "MEDIUM": "200+", "LOW": "15",
+                                 "UNTRIAGED": "10"},
+        },
+        "guardduty": {
+            "date_range": "2026-09-14 to 2026-09-20",
+            "severity_counts": {"HIGH": 0, "MEDIUM": 0, "LOW": 3},
+            "total_findings": 66,
+        },
     }
 
 
@@ -107,45 +177,52 @@ def main() -> int:
         gen.generate(collected_data, out_path)
         doc = Document(out_path)
 
-        checks = []
-
-        all_para_text = "\n".join(p.text for p in doc.paragraphs)
-
-        # 1. Single per-account Summary section renders the synthesised account.
-        checks.append(("per-account Summary section",
-                       any(p.text.strip() == "Summary" for p in doc.paragraphs)))
-        checks.append(("synthesised account header (name - id)",
-                       "Fly91 Primary - 123456789012" in all_para_text))
-        checks.append(("Billing and Cost Overview section",
-                       "Billing and Cost Overview" in all_para_text))
-        # Single-account scope: NO multi-account fleet table / Total Cost row.
-        all_cell_pre = "\n".join(
+        all_para = "\n".join(p.text for p in doc.paragraphs)
+        all_cell = "\n".join(
             cell.text
             for t in doc.tables for row in t.rows for cell in row.cells
         )
-        full_pre = all_para_text + "\n" + all_cell_pre
-        checks.append(("no multi-account fleet table",
-                       "Cost Summary Difference of All AWS Accounts" not in full_pre))
-        checks.append(("no multi-account Total Cost row",
-                       "Total Cost" not in all_cell_pre))
+        full = all_para + "\n" + all_cell
 
-        # 2. CPU-proxy alarm row appears for the over-threshold instance.
-        all_cell_text = "\n".join(
-            cell.text
-            for t in doc.tables for row in t.rows for cell in row.cells
-        )
-        checks.append(("CPU-proxy alarm server row present",
-                       "web-prod-01" in all_cell_text and "i-0abc123def4567890" in all_cell_text))
-        checks.append(("alarm metric row present", "CPU 70%" in all_cell_text))
-        checks.append(("peak-cpu trigger note present",
-                       "Peak CPU 92.4% during the week" in all_cell_text))
-        # Below-threshold instance must NOT appear as an alarm.
-        checks.append(("below-threshold instance excluded",
-                       "idle-box" not in all_cell_text))
+        checks = [
+            # Cost Summary Differences derived from live service_breakdown.
+            ("Cost Summary Differences heading",
+             any("Cost Summary Differences" in p.text for p in doc.paragraphs)),
+            ("live cost table has Inspector row", "Inspector" in all_cell),
+            ("live cost table has GuardDuty row", "GuardDuty" in all_cell),
+            ("live cost table has Total Cost row", "Total Cost" in all_cell),
+            ("account id present", "674351849978" in all_cell),
 
-        # 3. Resource Utilization & Alarms heading present (alarms were produced).
-        checks.append(("Resource Utilization & Alarms heading",
-                       "Resource Utilization & Alarms" in all_para_text))
+            # Disclaimer with configured org.
+            ("Disclaimer heading",
+             any(p.text.strip() == "Disclaimer" for p in doc.paragraphs)),
+            ("configurable disclaimer org (Greatworx)",
+             "confidential between Greatworx and Customer" in all_para),
+
+            # BAU Matrix Overview + resource tables.
+            ("BAU Matrix Overview heading",
+             "BAU Matrix Overview of the resources" in all_para),
+            ("EC2 table row (production website)",
+             "i-056b66d8b569a4a26" in all_cell),
+            ("RDS table row (prod psql)", "fly91-prod-psql-db" in all_cell),
+            ("ELB table row (prod ALB)", "Prod-Fly91-ALB" in all_cell),
+            ("WAF table row (prod WAF)", "Prod-WAF-Fly-91" in all_cell),
+
+            # Inspector + GuardDuty summaries.
+            ("Inspector findings summary",
+             "findings for the last week" in all_para),
+            ("GuardDuty findings summary",
+             "new findings this week" in all_para),
+
+            # Trailer.
+            ("End of Document trailer", "-- End of Document --" in all_para),
+
+            # NEGATIVE: obsolete layout must be gone.
+            ("no multi-account fleet table",
+             "Cost Summary Difference of All AWS Accounts" not in full),
+            ("no Resource Utilization & Alarms",
+             "Resource Utilization & Alarms" not in all_para),
+        ]
 
         failed = [name for name, ok in checks if not ok]
         for name, ok in checks:
@@ -155,7 +232,7 @@ def main() -> int:
             print("\nFAILED CHECKS: %d" % len(failed), file=sys.stderr)
             return 1
 
-        print("\nALL CHECKS PASSED  (live single-account fallback) tables=%d" % len(doc.tables))
+        print("\nALL CHECKS PASSED  (live data path) tables=%d" % len(doc.tables))
         return 0
     finally:
         if tmp_handle is not None:
