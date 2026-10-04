@@ -274,8 +274,14 @@ class EC2Collector(BaseCollector):
         if prefer_paths:
             for metric in metrics:
                 dims = metric.get("Dimensions", [])
-                path = self._extract_dimension(dims, "path")
-                if path in prefer_paths:
+                # Linux CWAgent exposes the volume under the 'path' dimension
+                # (/, /var); Windows CWAgent uses the 'instance' dimension
+                # (C:, D:). Check both so the preferred volume is picked on
+                # either platform instead of falling back to metrics[0]
+                # (which may be _Total). Mirrors _get_disk_metric.
+                volume = self._extract_dimension(dims, "instance") or \
+                    self._extract_dimension(dims, "path")
+                if volume in prefer_paths:
                     chosen_dims = dims
                     break
 

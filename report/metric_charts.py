@@ -119,7 +119,24 @@ def render_metric_chart(
         fig.patch.set_facecolor("white")
         ax.set_facecolor("white")
 
+        # Determine whether this chart mixes percent and non-percent (byte)
+        # series. When it does, byte series go on a secondary y-axis so their
+        # large magnitudes do not flatten the 0-100 percent lines.
         units: List[str] = []
+        for series in plottable:
+            unit = str(series.get("unit", "") or "")
+            if unit and unit not in units:
+                units.append(unit)
+
+        has_percent = any(u == "%" for u in units)
+        has_non_percent = any(u != "%" for u in units)
+        mixed = has_percent and has_non_percent
+
+        # Secondary axis only created when we actually mix percent + byte.
+        ax2 = ax.twinx() if mixed else None
+        if ax2 is not None:
+            ax2.set_facecolor("none")
+
         warn_lines: Dict[float, str] = {}
         crit_lines: Dict[float, str] = {}
 
@@ -127,9 +144,12 @@ def render_metric_chart(
             color = _LINE_COLORS[idx % len(_LINE_COLORS)]
             label = str(series.get("label", "metric"))
             unit = str(series.get("unit", "") or "")
-            if unit and unit not in units:
-                units.append(unit)
-            ax.plot(
+            # In mixed mode, non-percent (byte) series plot on the secondary
+            # axis; everything else stays on the primary axis.
+            target = ax
+            if mixed and unit != "%":
+                target = ax2
+            target.plot(
                 series["timestamps"],
                 series["values"],
                 color=color,
@@ -143,7 +163,8 @@ def render_metric_chart(
             if isinstance(critical, (int, float)):
                 crit_lines[float(critical)] = color
 
-        # Dashed horizontal warning/critical threshold lines.
+        # Dashed horizontal warning/critical threshold lines (percent metrics
+        # only, so always on the primary axis).
         for value in sorted(warn_lines):
             ax.axhline(
                 value, color=_WARNING_COLOR, linestyle="--", linewidth=1.1,
@@ -161,13 +182,22 @@ def render_metric_chart(
             fontsize=11, fontweight="bold", color=_TITLE_COLOR, loc="left",
         )
 
-        y_label = units[0] if len(units) == 1 else "Value"
-        ax.set_ylabel(y_label, fontsize=9)
-        ax.set_xlabel("Time (UTC)", fontsize=9)
-
-        # Percent metrics read best pinned to a 0-100 range.
-        if units and all(u == "%" for u in units):
+        if mixed:
+            # Primary axis holds the percent series; secondary holds bytes.
+            ax.set_ylabel("%", fontsize=9)
             ax.set_ylim(0, 100)
+            non_percent_units = [u for u in units if u != "%"]
+            ax2.set_ylabel(
+                non_percent_units[0] if non_percent_units else "Value",
+                fontsize=9,
+            )
+        else:
+            y_label = units[0] if len(units) == 1 else "Value"
+            ax.set_ylabel(y_label, fontsize=9)
+            # Percent metrics read best pinned to a 0-100 range.
+            if units and all(u == "%" for u in units):
+                ax.set_ylim(0, 100)
+        ax.set_xlabel("Time (UTC)", fontsize=9)
 
         # Date/time formatting across the reporting week.
         try:
@@ -179,7 +209,17 @@ def render_metric_chart(
             tick.set_fontsize(7)
 
         ax.grid(True, color=_GRID_COLOR, linewidth=0.7, alpha=0.9)
-        ax.legend(loc="upper left", fontsize=7, ncol=2, framealpha=0.9)
+
+        # Merge both axes' handles/labels into a single legend.
+        handles, labels = ax.get_legend_handles_labels()
+        if ax2 is not None:
+            h2, l2 = ax2.get_legend_handles_labels()
+            handles += h2
+            labels += l2
+        ax.legend(
+            handles, labels,
+            loc="upper left", fontsize=7, ncol=2, framealpha=0.9,
+        )
 
         fig.tight_layout()
 

@@ -340,11 +340,29 @@ def _mock_metric_series(start_date: date, end_date: date, kind: str) -> list:
         _clamp(58.0 + 7.0 * math.sin(i / 7.0) + 3.0 * math.cos(i / 4.0))
         for i in range(n)
     ]
+    # A representative NetworkIn byte series (unit 'Bytes') so the demo
+    # exercises the mixed-unit secondary-axis path that a live chart hits
+    # when percent and byte series share a chart. Magnitudes are in the
+    # millions, mirroring real NetworkIn counts over an hourly window.
+    net_values = [
+        round(
+            max(
+                0.0,
+                4.0e6
+                + 1.8e6 * math.sin(i / 9.0)
+                + 1.2e6 * math.cos(i / 3.5),
+            ),
+            2,
+        )
+        for i in range(n)
+    ]
     return [
         {"label": "CPUUtilization", "unit": "%",
          "timestamps": timestamps, "values": cpu_values},
         {"label": "mem_used_percent", "unit": "%",
          "timestamps": timestamps, "values": mem_values},
+        {"label": "NetworkIn", "unit": "Bytes",
+         "timestamps": timestamps, "values": net_values},
     ]
 
 
