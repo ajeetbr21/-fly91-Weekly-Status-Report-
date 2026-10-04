@@ -875,9 +875,27 @@ def main():
         # --output points at a Word file; use it for docx, keep default for xlsx.
         xlsx_output = default_xlsx
         docx_output = explicit_output
+        # Warn if a .docx path was given but Word output will not be generated.
+        if output_format == 'xlsx':
+            logger.warning(
+                f"--output '{explicit_output}' has a .docx suffix but "
+                f"--format is 'xlsx'; the .docx path will be ignored and the "
+                f"Excel report will be written to '{default_xlsx}'. "
+                f"Use --format docx or --format both to produce a Word file."
+            )
     else:
         xlsx_output = explicit_output or default_xlsx
         docx_output = default_docx
+        # Warn if an .xlsx (or other non-docx) path was given but only Word
+        # output will be generated.
+        if (output_format == 'docx' and explicit_output
+                and not explicit_output.lower().endswith('.docx')):
+            logger.warning(
+                f"--output '{explicit_output}' does not have a .docx suffix "
+                f"but --format is 'docx'; the Word report will be written to "
+                f"'{default_docx}' and '{explicit_output}' will be ignored. "
+                f"Use a .docx --output path, or --format xlsx or both."
+            )
 
     logger.info(f"Output format: {output_format}")
     if output_format in ('xlsx', 'both'):

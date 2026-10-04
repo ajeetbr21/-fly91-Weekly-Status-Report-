@@ -195,11 +195,12 @@ class WordReport:
         return "N/A"
 
     def _report_date_str(self) -> str:
-        # Report date = the day after the current period end (submission date),
-        # formatted dd/mm/yyyy to match the reference ("23/09/2026").
+        # Report date = submission date, three days after the current period
+        # end, formatted dd/mm/yyyy to match the reference (period 14-20 Sep
+        # 2026 -> cover date "23/09/2026").
         if self.end_date:
             from datetime import timedelta
-            submit = self.end_date + timedelta(days=1)
+            submit = self.end_date + timedelta(days=3)
             return submit.strftime("%d/%m/%Y")
         return date.today().strftime("%d/%m/%Y")
 

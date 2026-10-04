@@ -148,6 +148,12 @@ Notes:
   it is treated as the Excel output path. The Word output path otherwise comes
   from `word_report.word_output_filename` in `config.json`
   (default `Weekly_Status_Report.docx`), and the Excel path from `output_filename`.
+- If the `--output` suffix is incompatible with `--format` (for example
+  `--format xlsx --output report.docx`, or `--format docx --output report.xlsx`),
+  the tool logs a warning and the mismatched path is ignored; routing is
+  otherwise unchanged.
+- The cover-page report date is the submission date, computed as the period end
+  date **+ 3 days** (e.g. a 14-20 Sep 2026 week shows `23/09/2026`).
 - The Word report contains, in order: a cover page, a "Cost Summary Difference
   of All AWS Accounts" master table (ending in a Total Cost row with up/down
   indicators), a "security best practices" link table, per-account Summary
@@ -163,6 +169,15 @@ You can verify a generated Word report with the bundled checker:
 
 ```bash
 python3 scripts/verify_word_report.py Weekly_Status_Report.docx
+```
+
+The live single-account fallback (no mock `word_accounts`, no
+`word_report.accounts` in config) has its own standalone checker, which builds a
+real-shaped `cost`/`ec2` payload and asserts the single-account Cost Summary and
+CPU-proxy alarm row:
+
+```bash
+python3 scripts/verify_word_live_fallback.py
 ```
 
 ### Custom Configuration
@@ -192,7 +207,7 @@ Edit `config.json` to customize the report:
     "output_filename": "Weekly_AWS_BAU_Report.xlsx",
     "word_report": {
         "report_title": "Weekly Status Report",
-        "client_org": "Insync Analytics",
+        "client_org": "Aptech Limited",
         "submitted_by_label": "Submitted By",
         "submitter_org": "Operisoft Technologies Pvt Ltd",
         "activity_org": "Operisoft",
