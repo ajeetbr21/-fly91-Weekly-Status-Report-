@@ -124,6 +124,47 @@ python3 weekly_bau_report.py --start-date 2026-06-16 --end-date 2026-06-22
 python3 weekly_bau_report.py --start-date 2026-06-16 --end-date 2026-06-22 --output my_report.xlsx
 ```
 
+### Choosing the Output Format (Excel and/or Word)
+
+The tool can produce the existing Excel (`.xlsx`) workbook, a Microsoft Word
+(`.docx`) **Weekly Status Report** that replicates the client reference
+document, or both. Use the `--format` flag:
+
+```bash
+# Excel only (default — unchanged behaviour)
+python3 weekly_bau_report.py --start-date 2026-06-16 --end-date 2026-06-22
+
+# Word only
+python3 weekly_bau_report.py --start-date 2026-06-16 --end-date 2026-06-22 --format docx
+
+# Both Excel and Word
+python3 weekly_bau_report.py --start-date 2026-06-16 --end-date 2026-06-22 --format both
+```
+
+Notes:
+
+- `--format` accepts `xlsx` (default), `docx`, or `both`.
+- When `--output` ends in `.docx`, it is used as the Word output path; otherwise
+  it is treated as the Excel output path. The Word output path otherwise comes
+  from `word_report.word_output_filename` in `config.json`
+  (default `Weekly_Status_Report.docx`), and the Excel path from `output_filename`.
+- The Word report contains, in order: a cover page, a "Cost Summary Difference
+  of All AWS Accounts" master table (ending in a Total Cost row with up/down
+  indicators), a "security best practices" link table, per-account Summary
+  sections (Billing & Cost Overview plus optional Resource Utilization & Alarms
+  tables), and an "-- End Of Document --" trailer. Cost date ranges and alarm
+  dates are populated for whatever week you pass via `--start-date`/`--end-date`.
+- Mock mode (`--mock`) synthesises a representative multi-account dataset so the
+  Word report is complete without AWS access. In live mode the single configured
+  account is populated from the real collected cost/EC2 data; see the "Word
+  report (multi-account mapping)" note below.
+
+You can verify a generated Word report with the bundled checker:
+
+```bash
+python3 scripts/verify_word_report.py Weekly_Status_Report.docx
+```
+
 ### Custom Configuration
 
 ```bash
@@ -149,6 +190,14 @@ Edit `config.json` to customize the report:
     "prepared_by": "Cloud Operations Team",
     "report_title": "Weekly AWS Infrastructure BAU Matrix Report",
     "output_filename": "Weekly_AWS_BAU_Report.xlsx",
+    "word_report": {
+        "report_title": "Weekly Status Report",
+        "client_org": "Insync Analytics",
+        "submitted_by_label": "Submitted By",
+        "submitter_org": "Operisoft Technologies Pvt Ltd",
+        "activity_org": "Operisoft",
+        "word_output_filename": "Weekly_Status_Report.docx"
+    },
     "regions": ["us-east-1"],
     "thresholds": {
         "cpu_warning": 70,
@@ -176,6 +225,41 @@ Edit `config.json` to customize the report:
 | `prepared_by` | Name/team shown on the cover page |
 | `regions` | AWS regions to collect data from |
 | `thresholds` | Warning/critical thresholds for conditional formatting |
+| `output_filename` | Default Excel output filename |
+| `word_report` | Optional. Branding/output settings for the Word (`.docx`) report (see below) |
+
+#### `word_report` fields (all optional)
+
+| Field | Default | Description |
+|---|---|---|
+| `report_title` | `Weekly Status Report` | Cover-page title of the Word report |
+| `client_org` | falls back to `client_name` | Client organization name on the cover page |
+| `submitted_by_label` | `Submitted By` | Label shown above the submitter org |
+| `submitter_org` | `Operisoft Technologies Pvt Ltd` | Organization that prepared the report |
+| `activity_org` | falls back to `submitter_org` | Org name used in "No Activity performed by &lt;org&gt;" lines |
+| `word_output_filename` | `Weekly_Status_Report.docx` | Default Word output filename |
+
+All `word_report` keys are optional; omitting the section (or any key) falls
+back to the defaults above, so an older `config.json` keeps working. Swap these
+strings to re-brand the report (e.g. Aptech / Operisoft / Fly91).
+
+### Word report (multi-account mapping)
+
+The client reference document is a **multi-account** report, while the live AWS
+collectors in this project target a **single** account. The Word report is
+therefore driven by an `accounts` list:
+
+- In `--mock` mode the list is synthesised in `get_mock_word_accounts()` so the
+  generated `.docx` mirrors the full reference layout; alarm dates are
+  parameterised to the selected week.
+- In live mode the single configured account (`client_name` / `aws_account_id`)
+  is populated from the real collected cost and EC2 data, and appears as account
+  #1. Remaining accounts can be supplied via an optional
+  `word_report.accounts` list in `config.json` if you want the full multi-account
+  table in production.
+- The 48 per-account console screenshots embedded in the original reference
+  `.docx` are account-specific captures that cannot be regenerated from mock
+  data, so the generated report omits them and renders the data as text/tables.
 
 ---
 

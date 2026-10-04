@@ -58,6 +58,7 @@ from collectors.autoscaling_collector import AutoScalingCollector
 from collectors.inspector_collector import InspectorCollector
 from collectors.guardduty_collector import GuardDutyCollector
 from report.excel_generator import ExcelGenerator
+from report.word_report import WordReport, WordReportError
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -124,7 +125,17 @@ Examples:
         '--output',
         type=str,
         default=None,
-        help='Output Excel file path (overrides config setting)'
+        help='Output file path (overrides config setting). If it ends in .docx it '
+             'is used as the Word output path; otherwise it is the Excel output path.'
+    )
+    parser.add_argument(
+        '--format',
+        dest='output_format',
+        type=str,
+        choices=['docx', 'xlsx', 'both'],
+        default='xlsx',
+        help="Which report(s) to generate: 'xlsx' (default, Excel only), "
+             "'docx' (Word only), or 'both'."
     )
     parser.add_argument(
         '--mock',
@@ -255,6 +266,227 @@ def print_summary(collected_data: dict, start_date: date, end_date: date, logger
 # Mock Data Generator
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _alarm_day(start_date: date, offset: int) -> str:
+    """Return a 'September 15' style label for start_date + offset days."""
+    d = start_date + timedelta(days=offset)
+    return f"{d.strftime('%B')} {d.day}"
+
+
+def get_mock_word_accounts(start_date: date, end_date: date) -> list:
+    """
+    Build the multi-account dataset that drives the Word (.docx) report.
+
+    The reference document is a MULTI-ACCOUNT status report, while the live
+    collectors in this project target a single AWS account. In mock mode we
+    synthesise a representative list of accounts so the generated .docx mirrors
+    the reference layout. Alarm dates are parameterised to the selected week via
+    `_alarm_day`, so running a different --start-date/--end-date shifts every
+    "September 15(1 Time)"-style label to the matching day of the chosen week.
+
+    Each account entry carries:
+        no, account_name, account_id, last_week_cost, tax_cost,
+        current_week_cost, services_text, avg_daily_cost, activity_note,
+        and an optional `alarms` list of
+        {server_name, region, metric, triggers}.
+    """
+    def days() -> int:
+        return (end_date - start_date).days + 1
+
+    def avg(cost: float) -> float:
+        return round(cost / max(days(), 1), 2)
+
+    accounts = [
+        {
+            "no": 1,
+            "account_name": "Aptrack 1.0 - DC [Aptech]",
+            "account_id": "654654548701",
+            "last_week_cost": 343.81,
+            "tax_cost": 64.89,
+            "current_week_cost": 340.00,
+            "services_text": "The costs slightly decreased due to the following services: EC2-Instances, EC2-Other.",
+            "activity_note": None,
+            "alarms": [
+                {
+                    "server_name": "PIPELINE_SERVER(i-051ecadd578639f19)",
+                    "region": "ap-south-1",
+                    "metric": "Disk 95%  [/]",
+                    "triggers": [f"{_alarm_day(start_date, 1)}(1 Time)"],
+                },
+                {
+                    "server_name": "PIPELINE_SERVER(i-051ecadd578639f19)",
+                    "region": "ap-south-1",
+                    "metric": "Disk 90%  [/]",
+                    "triggers": [f"{_alarm_day(start_date, 1)}(3 Times)", f"{_alarm_day(start_date, 3)}(3 Times)"],
+                },
+            ],
+        },
+        {
+            "no": 2,
+            "account_name": "Aptrack 2.0 - NonProd UAT [MEL]",
+            "account_id": "767397805488",
+            "last_week_cost": 1064.03,
+            "tax_cost": 188.92,
+            "current_week_cost": 993.49,
+            "services_text": "The costs decreased due to the following services: EC2-Instances, EC2-Other.",
+            "activity_note": None,
+            "alarms": [
+                {
+                    "server_name": "aptrack-np-reporting-db(i-02f5198e95bff8b1f)",
+                    "region": "ap-south-1",
+                    "metric": "Disk 80%  [C:]",
+                    "triggers": [f"{_alarm_day(start_date, 0)}(1 Time)", f"{_alarm_day(start_date, 1)}(1 Time)", f"{_alarm_day(start_date, 5)}(7 Times)"],
+                },
+                {
+                    "server_name": "Aptrack-pk-uat-master(i-0fa449af963f6300e)",
+                    "region": "ap-south-1",
+                    "metric": "CPU 90%",
+                    "triggers": [f"{_alarm_day(start_date, 1)}(7 Times)", f"{_alarm_day(start_date, 2)}(8 Times)"],
+                },
+            ],
+        },
+        {
+            "no": 3,
+            "account_name": "Aptrack 2.0 - Old Management A/c [MEL]/Production",
+            "account_id": "015747350560",
+            "last_week_cost": 2047.39,
+            "tax_cost": 824.04,
+            "current_week_cost": 2049.19,
+            "services_text": "The costs slightly increased due to the following services: EC2-Instances.",
+            "activity_note": None,
+            "alarms": [
+                {
+                    "server_name": "Monitoring-Server(i-0c429eb752c2ae3d9)",
+                    "region": "ap-south-1",
+                    "metric": "Memory 90%",
+                    "triggers": [f"{_alarm_day(start_date, 5)}(1 Time)"],
+                },
+                {
+                    "server_name": "PROD-Aptrack-Reporting-New(i-00b4573a7e653e931)",
+                    "region": "ap-south-1",
+                    "metric": "Memory 85%",
+                    "triggers": [f"{_alarm_day(start_date, 1)}(14 Times)", f"{_alarm_day(start_date, 2)}(17 Times)"],
+                },
+            ],
+        },
+        {
+            "no": 4,
+            "account_name": "Aptrack 1.0 - DR [Aptrack 5.0]",
+            "account_id": "590183710228",
+            "last_week_cost": 127.73,
+            "tax_cost": 21.36,
+            "current_week_cost": 120.80,
+            "services_text": "The costs decreased due to the following services: EC2-Other.",
+            "activity_note": None,
+            "alarms": [],
+        },
+        {
+            "no": 5,
+            "account_name": "Aptrack -ProAlle",
+            "account_id": "617172754330",
+            "last_week_cost": 235.33,
+            "tax_cost": 73.89,
+            "current_week_cost": 183.25,
+            "services_text": "The costs decreased due to the following services: OpenSearch Service.",
+            "activity_note": None,
+            "alarms": [],
+        },
+        {
+            "no": 6,
+            "account_name": "Aptrack - 2.0 - Shared Service [MEL]",
+            "account_id": "533267037955",
+            "last_week_cost": 329.61,
+            "tax_cost": 46.81,
+            "current_week_cost": 290.24,
+            "services_text": "The costs have decreased due to following services: EC2-Other, Network Firewall.",
+            "activity_note": None,
+            "alarms": [],
+        },
+        {
+            "no": 7,
+            "account_name": "Aptrack-SAP-Dev and Quality",
+            "account_id": "528757792293",
+            "last_week_cost": 102.75,
+            "tax_cost": 17.66,
+            "current_week_cost": 103.29,
+            "services_text": "The cost remains same.",
+            "activity_note": None,
+            "alarms": [],
+        },
+        {
+            "no": 8,
+            "account_name": "Aptrack-SAP-Production",
+            "account_id": "195275643918",
+            "last_week_cost": 153.40,
+            "tax_cost": 45.05,
+            "current_week_cost": 153.85,
+            "services_text": "The cost remains same.",
+            "activity_note": None,
+            "alarms": [],
+        },
+        {
+            "no": 9,
+            "account_name": "Aptrack \u2013 LCMS",
+            "account_id": "771423618181",
+            "last_week_cost": 113.24,
+            "tax_cost": 25.37,
+            "current_week_cost": 138.61,
+            "services_text": "The costs decreased compared to previous week due to usage of CloudFront.",
+            "activity_note": None,
+            "alarms": [
+                {
+                    "server_name": "maacindia-proxy(i-01fdbbbf24efc3f0b)",
+                    "region": "ap-south-1",
+                    "metric": "CPU 90%",
+                    "triggers": [f"{_alarm_day(start_date, 4)}(2 Times)"],
+                },
+            ],
+        },
+        {
+            "no": 10,
+            "account_name": "Aptech-ProConnect",
+            "account_id": "108782065415",
+            "last_week_cost": 246.55,
+            "tax_cost": 48.59,
+            "current_week_cost": 188.14,
+            "services_text": "The costs have decreased compared to previous week due to the usage of the following services: Relational Database Service.",
+            "activity_note": None,
+            "alarms": [
+                {
+                    "server_name": "proconnect-chatbot(i-0ac87a4c06079ee38)",
+                    "region": "ap-south-1",
+                    "metric": "Disk 80%  [/]",
+                    "triggers": [f"{_alarm_day(start_date, 2)}(1 Time)"],
+                },
+            ],
+        },
+        {
+            "no": 11,
+            "account_name": "Aptrack - QnA Snipping Tool Solution",
+            "account_id": "211125374996",
+            "last_week_cost": 53.67,
+            "tax_cost": 10.57,
+            "current_week_cost": 90.01,
+            "services_text": "The costs increased compared to previous week due to usage of following services: EC2-instances.",
+            "activity_note": None,
+            "alarms": [],
+        },
+        {
+            "no": 12,
+            "account_name": "Aptech-LAPA",
+            "account_id": "343218180162",
+            "last_week_cost": 22.71,
+            "tax_cost": 3.77,
+            "current_week_cost": 29.27,
+            "services_text": "The costs increased compared to the previous week due to the following services, such as CloudFront and WAF.",
+            "activity_note": None,
+            "alarms": [],
+        },
+    ]
+    for acct in accounts:
+        acct["avg_daily_cost"] = avg(acct["current_week_cost"])
+    return accounts
+
+
 def get_mock_data(start_date: date, end_date: date) -> dict:
     """Generate realistic mock data matching the exact report spec."""
     # Generate daily cost entries dynamically based on start_date and end_date
@@ -271,6 +503,7 @@ def get_mock_data(start_date: date, end_date: date) -> dict:
         idx += 1
 
     return {
+        "word_accounts": get_mock_word_accounts(start_date, end_date),
         "cost": {
             "current_week_total": 3116.45,
             "previous_week_total": 3250.00,
@@ -631,9 +864,26 @@ def main():
 
     logger.info(f"Report Period: {format_date_range(start_date, end_date)}")
 
-    # ── Determine output path ──
-    output_path = args.output or config.get('output_filename', 'Weekly_AWS_BAU_Report.xlsx')
-    logger.info(f"Output File: {output_path}")
+    # ── Determine output paths for each format ──
+    output_format = args.output_format
+    word_cfg = config.get('word_report', {}) or {}
+    default_xlsx = config.get('output_filename', 'Weekly_AWS_BAU_Report.xlsx')
+    default_docx = word_cfg.get('word_output_filename', 'Weekly_Status_Report.docx')
+
+    explicit_output = args.output
+    if explicit_output and explicit_output.lower().endswith('.docx'):
+        # --output points at a Word file; use it for docx, keep default for xlsx.
+        xlsx_output = default_xlsx
+        docx_output = explicit_output
+    else:
+        xlsx_output = explicit_output or default_xlsx
+        docx_output = default_docx
+
+    logger.info(f"Output format: {output_format}")
+    if output_format in ('xlsx', 'both'):
+        logger.info(f"Excel output file: {xlsx_output}")
+    if output_format in ('docx', 'both'):
+        logger.info(f"Word output file: {docx_output}")
 
     overall_start = time.time()
 
@@ -680,31 +930,59 @@ def main():
     # ── Print summary ──
     print_summary(collected_data, start_date, end_date, logger)
 
-    # ── Generate Excel report ──
-    logger.info("")
-    logger.info("Generating Excel report...")
-    report_start = time.time()
+    # ── Generate report(s) ──
+    generated_files = []
 
-    try:
-        generator = ExcelGenerator(config, start_date, end_date)
-        generator.generate(collected_data, output_path)
-        report_elapsed = time.time() - report_start
-        logger.info(f"✓ Excel report generated in {report_elapsed:.1f}s")
-        logger.info(f"✓ Report saved to: {os.path.abspath(output_path)}")
-    except Exception as e:
-        logger.error(f"Report generation failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        sys.exit(1)
+    if output_format in ('xlsx', 'both'):
+        logger.info("")
+        logger.info("Generating Excel report...")
+        report_start = time.time()
+        try:
+            generator = ExcelGenerator(config, start_date, end_date)
+            generator.generate(collected_data, xlsx_output)
+            report_elapsed = time.time() - report_start
+            logger.info(f"✓ Excel report generated in {report_elapsed:.1f}s")
+            logger.info(f"✓ Report saved to: {os.path.abspath(xlsx_output)}")
+            generated_files.append(xlsx_output)
+        except Exception as e:
+            logger.error(f"Excel report generation failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            sys.exit(1)
+
+    if output_format in ('docx', 'both'):
+        logger.info("")
+        logger.info("Generating Word report...")
+        report_start = time.time()
+        try:
+            word_generator = WordReport(config, start_date, end_date)
+            word_generator.generate(collected_data, docx_output)
+            report_elapsed = time.time() - report_start
+            logger.info(f"✓ Word report generated in {report_elapsed:.1f}s")
+            logger.info(f"✓ Report saved to: {os.path.abspath(docx_output)}")
+            generated_files.append(docx_output)
+        except WordReportError as e:
+            # python-docx unavailable. If Word was the only requested format,
+            # fail clearly; otherwise warn and keep the Excel output.
+            logger.error(f"Word report generation skipped: {e}")
+            if output_format == 'docx':
+                sys.exit(1)
+        except Exception as e:
+            logger.error(f"Word report generation failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            if output_format == 'docx':
+                sys.exit(1)
 
     # ── Done ──
     total_elapsed = time.time() - overall_start
+    files_line = ", ".join(generated_files) if generated_files else "(none)"
     print()
     print("╔══════════════════════════════════════════════════════════════════╗")
     print(f"║  ✓ Report generated successfully!                              ║")
-    print(f"║  File: {output_path:<56} ║")
-    print(f"║  Time: {total_elapsed:.1f}s{' ' * (55 - len(f'{total_elapsed:.1f}s'))} ║")
     print("╚══════════════════════════════════════════════════════════════════╝")
+    print(f"  Files: {files_line}")
+    print(f"  Time:  {total_elapsed:.1f}s")
     print()
 
 

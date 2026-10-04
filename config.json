@@ -4,6 +4,14 @@
     "prepared_by": "Cloud Operations Team",
     "report_title": "Weekly AWS Infrastructure BAU Matrix Report",
     "output_filename": "Weekly_AWS_BAU_Report.xlsx",
+    "word_report": {
+        "report_title": "Weekly Status Report",
+        "client_org": "Insync Analytics",
+        "submitted_by_label": "Submitted By",
+        "submitter_org": "Operisoft Technologies Pvt Ltd",
+        "activity_org": "Operisoft",
+        "word_output_filename": "Weekly_Status_Report.docx"
+    },
     "regions": ["us-east-1"],
     "thresholds": {
         "cpu_warning": 70,

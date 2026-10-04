@@ -2,6 +2,11 @@
 Weekly_AWS_BAU_Report.xlsx
 *.xlsx
 
+# Generated Word reports (keep the client reference doc, which is committed on purpose)
+Weekly_Status_Report.docx
+*.docx
+!Aptech-Limited-Weekly-Status-Report 14 September to 20 September 2026.docx
+
 # Generated screenshot-style visuals (Inspector / GuardDuty console images)
 *.png
 assets_tmp/
