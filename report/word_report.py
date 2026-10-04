@@ -33,16 +33,21 @@ from typing import Any, Dict, List, Optional, Union
 try:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Pt, RGBColor
+    from docx.shared import Inches, Pt, RGBColor
     _DOCX_AVAILABLE = True
     _DOCX_IMPORT_ERROR = None
 except ImportError as exc:  # pragma: no cover - exercised only without python-docx
     Document = None
     WD_ALIGN_PARAGRAPH = None
+    Inches = None
     Pt = None
     RGBColor = None
     _DOCX_AVAILABLE = False
     _DOCX_IMPORT_ERROR = exc
+
+# CloudWatch-style metric chart renderer (degrades gracefully if matplotlib
+# is unavailable - render_metric_chart returns None and images are skipped).
+from report import metric_charts
 
 from utils.helpers import (
     format_currency,
@@ -286,6 +291,10 @@ class WordReport:
                 "region": region,
                 "metric": f"CPU {cpu_warn}%",
                 "triggers": [f"Peak CPU {cpu_max:.1f}% during the week"],
+                # Raw weekly CloudWatch time-series collected by EC2Collector,
+                # used to render a chart beneath this server. Empty/missing is
+                # fine - the chart is simply skipped.
+                "metric_series": inst.get("metric_series") or [],
             })
         return alarms
 
@@ -460,8 +469,48 @@ class WordReport:
                     cells[2].text = str(alarm.get("metric", ""))
                     triggers = alarm.get("triggers") or []
                     cells[3].text = "".join(str(t) for t in triggers)
+
+                # Embed a CloudWatch-style metric chart beneath each server
+                # that carries a weekly time-series. The alarm table above is
+                # kept intact; the chart is ADDED, not a replacement.
+                self._embed_alarm_charts(doc, alarms)
             else:
                 doc.add_paragraph("No Resource Utilization & Alarms.")
+
+    def _embed_alarm_charts(self, doc, alarms: List[Dict[str, Any]]) -> None:
+        """Render and embed one CloudWatch-style chart per alarmed server.
+
+        For each alarm entry that carries a non-empty ``metric_series``, render
+        a matplotlib PNG via report.metric_charts and embed it with a small
+        italic caption. If matplotlib is unavailable, the data is empty, or any
+        step fails, the image is skipped silently and the table/text remain -
+        mirroring the per-section graceful-degradation used in generate().
+        """
+        thresholds = self.config.get("thresholds", {}) or {}
+        for alarm in alarms:
+            series_list = alarm.get("metric_series") or []
+            if not series_list:
+                continue
+            server_name = str(alarm.get("server_name", ""))
+            try:
+                buf = metric_charts.render_metric_chart(
+                    server_name, series_list, thresholds=thresholds
+                )
+                if buf is None:
+                    continue
+                doc.add_picture(buf, width=Inches(6))
+                caption = doc.add_paragraph()
+                cap_run = caption.add_run(
+                    "CloudWatch metrics for %s - %s"
+                    % (server_name, self._current_range_str())
+                )
+                cap_run.italic = True
+                cap_run.font.size = Pt(8)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to embed metric chart for '%s': %s",
+                    server_name, exc,
+                )
 
     def _build_trailer(self, doc) -> None:
         trailer = doc.add_paragraph()

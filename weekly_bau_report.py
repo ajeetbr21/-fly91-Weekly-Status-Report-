@@ -23,6 +23,7 @@ Author: Cloud Operations Team
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -272,6 +273,99 @@ def _alarm_day(start_date: date, offset: int) -> str:
     return f"{d.strftime('%B')} {d.day}"
 
 
+def _mock_hourly_timestamps(start_date: date, end_date: date) -> list:
+    """Deterministic hourly datetimes from start_date 00:00 to end_date 23:00.
+
+    Pure-stdlib (datetime only); no numpy. Returns a list of naive datetimes
+    spanning the full selected reporting week at one-hour resolution.
+    """
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.min.time()) + timedelta(hours=23)
+    stamps = []
+    cur = start_dt
+    while cur <= end_dt:
+        stamps.append(cur)
+        cur += timedelta(hours=1)
+    return stamps
+
+
+def _mock_metric_series(start_date: date, end_date: date, kind: str) -> list:
+    """Build deterministic synthetic weekly series for a mock server.
+
+    Pure Python (datetime/math), NO numpy. ``kind`` selects a shape that is
+    consistent with the server's alarm:
+
+        'disk' - a disk-utilisation (%) series trending up toward/over ~90%,
+                 paired with a memory (%) series.
+        'cpu'  - a CPU-utilisation (%) series that spikes over ~80%, paired
+                 with a memory (%) series.
+
+    Each series is a dict {'label', 'unit', 'timestamps', 'values'} ready for
+    report.metric_charts.render_metric_chart.
+    """
+    timestamps = _mock_hourly_timestamps(start_date, end_date)
+    n = max(len(timestamps), 1)
+
+    def _clamp(v: float) -> float:
+        return round(max(0.0, min(100.0, v)), 2)
+
+    if kind == "disk":
+        # Disk steadily climbs across the week from ~62% toward/over 90%,
+        # with a gentle daily ripple so it reads like a real metric.
+        disk_values = []
+        for i, _ in enumerate(timestamps):
+            trend = 62.0 + (i / n) * 33.0  # ~62 -> ~95 across the week
+            ripple = 2.5 * math.sin(i / 6.0)
+            disk_values.append(_clamp(trend + ripple))
+        # Memory oscillates in a healthy band around ~65%.
+        mem_values = [
+            _clamp(64.0 + 6.0 * math.sin(i / 8.0) + 2.0 * math.cos(i / 3.0))
+            for i in range(n)
+        ]
+        return [
+            {"label": "disk_used_percent", "unit": "%",
+             "timestamps": timestamps, "values": disk_values},
+            {"label": "mem_used_percent", "unit": "%",
+             "timestamps": timestamps, "values": mem_values},
+        ]
+
+    # Default: 'cpu'
+    # CPU baseline ~45% with pronounced daily spikes that exceed ~80%.
+    cpu_values = []
+    for i, _ in enumerate(timestamps):
+        base = 45.0 + 8.0 * math.sin(i / 10.0)
+        spike = 42.0 * max(0.0, math.sin((i / 24.0) * 2.0 * math.pi - 1.0))
+        cpu_values.append(_clamp(base + spike))
+    mem_values = [
+        _clamp(58.0 + 7.0 * math.sin(i / 7.0) + 3.0 * math.cos(i / 4.0))
+        for i in range(n)
+    ]
+    # A representative NetworkIn byte series (unit 'Bytes') so the demo
+    # exercises the mixed-unit secondary-axis path that a live chart hits
+    # when percent and byte series share a chart. Magnitudes are in the
+    # millions, mirroring real NetworkIn counts over an hourly window.
+    net_values = [
+        round(
+            max(
+                0.0,
+                4.0e6
+                + 1.8e6 * math.sin(i / 9.0)
+                + 1.2e6 * math.cos(i / 3.5),
+            ),
+            2,
+        )
+        for i in range(n)
+    ]
+    return [
+        {"label": "CPUUtilization", "unit": "%",
+         "timestamps": timestamps, "values": cpu_values},
+        {"label": "mem_used_percent", "unit": "%",
+         "timestamps": timestamps, "values": mem_values},
+        {"label": "NetworkIn", "unit": "Bytes",
+         "timestamps": timestamps, "values": net_values},
+    ]
+
+
 def get_mock_word_accounts(start_date: date, end_date: date) -> list:
     """
     Build the single-account dataset that drives the Word (.docx) report.
@@ -312,12 +406,14 @@ def get_mock_word_accounts(start_date: date, end_date: date) -> list:
                     "region": "ap-south-1",
                     "metric": "Disk 90%  [/]",
                     "triggers": [f"{_alarm_day(start_date, 1)}(2 Times)", f"{_alarm_day(start_date, 4)}(1 Time)"],
+                    "metric_series": _mock_metric_series(start_date, end_date, "disk"),
                 },
                 {
                     "server_name": "fly91-db-prod(i-0b2c3d4e5f6071829)",
                     "region": "ap-south-1",
                     "metric": "CPU 80%",
                     "triggers": [f"{_alarm_day(start_date, 2)}(3 Times)"],
+                    "metric_series": _mock_metric_series(start_date, end_date, "cpu"),
                 },
             ],
         },

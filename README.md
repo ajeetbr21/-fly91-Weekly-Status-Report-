@@ -72,6 +72,7 @@ image (the tables are unaffected).
    - `ce:GetCostAndUsage`
    - `ec2:DescribeInstances`
    - `cloudwatch:GetMetricStatistics`
+   - `cloudwatch:GetMetricData`
    - `cloudwatch:ListMetrics`
    - `elasticloadbalancing:DescribeLoadBalancers`
    - `wafv2:ListWebACLs`
@@ -107,6 +108,9 @@ pip3 install -r requirements.txt --user
 > **Note:** `boto3` and `botocore` are pre-installed on AWS CloudShell.
 > `Pillow` is used for the Inspector/GuardDuty screenshot-style visuals; if it
 > cannot be installed, the report still generates (the images are skipped).
+> `matplotlib` is used to render the per-server CloudWatch metric graphs in the
+> Word report (headless `Agg` backend); if it cannot be installed, the Word
+> report still generates with the graphs omitted.
 
 ---
 
@@ -165,11 +169,25 @@ Notes:
 - Mock mode (`--mock`) synthesises a representative single-account dataset so the
   Word report is complete without AWS access. In live mode the configured
   account is populated from the real collected cost/EC2 data.
+- The "Resource Utilization & Alarms" section now embeds AWS CloudWatch metric
+  graphs per server (one chart image per Fly91 server). In production the charts
+  are drawn from real CloudWatch time-series collected via `GetMetricStatistics`
+  and `GetMetricData`; in `--mock` mode they are synthetic sample charts so the
+  report is complete without AWS access. Charts are rendered with matplotlib
+  using the headless `Agg` backend, so no display is required. Memory and disk
+  metrics require the CloudWatch Agent to be installed on the instances in
+  production (CPU and network metrics are native to AWS/EC2). Chart rendering
+  degrades gracefully: if matplotlib is unavailable or the metric data is empty,
+  the images are skipped and the surrounding text and alarm tables are still
+  generated.
 
 You can verify a generated Word report with the bundled checker:
 
 ```bash
 python3 scripts/verify_word_report.py Weekly_Status_Report.docx
+
+# Also assert that the report embeds at least one CloudWatch graph image:
+python3 scripts/verify_word_report.py Weekly_Status_Report.docx --min-images 1
 ```
 
 The live single-account fallback (no mock `word_accounts`, no
