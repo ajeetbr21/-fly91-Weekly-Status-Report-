@@ -91,7 +91,25 @@ def design_checks(path):
                    re.search(r"<w:t[^>]*>N</w:t>", xml) is not None
                    and re.search(r"<w:t[^>]*>o</w:t>", xml) is not None))
 
+    # (g) cover blue accent bar is full-height: the cover layout row must carry
+    # a non-trivial w:trHeight (twips). Without it the blue bar is a one-line
+    # stub instead of running down the left edge of the cover page. We assert a
+    # trHeight of at least ~8in (11520 twips) exists.
+    checks.append(("design: cover accent bar full-height row (w:trHeight)",
+                   _has_tall_tr_height(xml, min_twips=11520)))
+
     return checks
+
+
+def _has_tall_tr_height(xml, min_twips):
+    """True if any w:trHeight val in the document is >= min_twips (twips)."""
+    for match in re.finditer(r'<w:trHeight\b[^>]*\bw:val="(\d+)"', xml):
+        try:
+            if int(match.group(1)) >= min_twips:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def collect_text(doc):

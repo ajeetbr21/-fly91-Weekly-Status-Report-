@@ -43,7 +43,7 @@ try:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.enum.table import WD_ALIGN_VERTICAL
-    from docx.shared import Inches, Pt, RGBColor, Emu
+    from docx.shared import Inches, Pt, RGBColor
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     _DOCX_AVAILABLE = True
@@ -55,7 +55,6 @@ except ImportError as exc:  # pragma: no cover - exercised only without python-d
     Inches = None
     Pt = None
     RGBColor = None
-    Emu = None
     OxmlElement = None
     qn = None
     _DOCX_AVAILABLE = False
@@ -359,7 +358,7 @@ class WordReport:
             except Exception:
                 pass
             self._shade_cell(bar_cell, self._ACCENT_BLUE)
-            self._set_cell_vertical_bar_height(bar_cell)
+            self._set_cell_vertical_bar_height(header_tbl.rows[0], bar_cell)
 
             logo_para = logo_cell.paragraphs[0]
             logo_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -1431,14 +1430,30 @@ class WordReport:
             logger.warning("Failed to shade cell: %s", exc)
 
     @staticmethod
-    def _set_cell_vertical_bar_height(cell) -> None:
-        """Give the accent-bar cell a tall minimum height so the blue column
-        reads as a full-height vertical bar on the cover."""
+    def _set_cell_vertical_bar_height(row, cell) -> None:
+        """Give the accent-bar row a tall minimum height so the blue column
+        reads as a full-height vertical bar down the left edge of the cover.
+
+        python-docx row height is set via a ``w:trHeight`` on the row's
+        ``w:trPr`` (val in twips, hRule=atLeast). The usable page height is the
+        Letter page (11in) minus the top (0.9in) and bottom (0.8in) margins,
+        i.e. ~9.3in -> 13392 twips (1in = 1440 twips). We also clear any run
+        text in the bar cell so only the fill shows.
+        """
         try:
-            tc_pr = cell._tc.get_or_add_tcPr()
-            # Remove any text so only the fill shows; keep an empty paragraph.
+            # Clear any text so only the fill shows; keep an empty paragraph.
             for paragraph in cell.paragraphs:
                 for run in list(paragraph.runs):
                     run.text = ""
         except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Failed to set accent bar: %s", exc)
+            logger.warning("Failed to clear accent bar text: %s", exc)
+        try:
+            # ~9.3in usable height (11in page - 0.9in top - 0.8in bottom).
+            usable_twips = int(9.3 * 1440)  # 13392 twips
+            tr_pr = row._tr.get_or_add_trPr()
+            tr_height = OxmlElement("w:trHeight")
+            tr_height.set(qn("w:val"), str(usable_twips))
+            tr_height.set(qn("w:hRule"), "atLeast")
+            tr_pr.append(tr_height)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to set accent bar row height: %s", exc)
