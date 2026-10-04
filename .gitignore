@@ -1,0 +1,11 @@
+# Build artifacts
+Weekly_AWS_BAU_Report.xlsx
+*.xlsx
+
+# Logs
+bau_report.log
+*.log
+
+# Python caches
+__pycache__/
+*.pyc
