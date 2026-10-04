@@ -106,11 +106,13 @@ pip3 install -r requirements.txt --user
 ```
 
 > **Note:** `boto3` and `botocore` are pre-installed on AWS CloudShell.
-> `Pillow` is used for the Inspector/GuardDuty screenshot-style visuals; if it
-> cannot be installed, the report still generates (the images are skipped).
-> `matplotlib` is used to render the per-server CloudWatch metric graphs in the
-> Word report (headless `Agg` backend); if it cannot be installed, the Word
-> report still generates with the graphs omitted.
+> `Pillow` is used for the Amazon Inspector / Guard Duty console-style
+> screenshots embedded in both the Excel and Word reports; if it cannot be
+> installed, the reports still generate (the images are skipped).
+> `matplotlib` is used for optional per-instance CloudWatch metric graphs
+> (headless `Agg` backend); it is only used when per-instance metric
+> time-series are available, and the Word report still generates with the
+> graphs omitted if it cannot be installed.
 
 ---
 
@@ -131,7 +133,7 @@ python3 weekly_bau_report.py --start-date 2026-06-16 --end-date 2026-06-22 --out
 ### Choosing the Output Format (Excel and/or Word)
 
 The tool can produce the existing Excel (`.xlsx`) workbook, a Microsoft Word
-(`.docx`) **Weekly Status Report** that replicates the client reference
+(`.docx`) **Weekly Status Report** that reproduces the real Fly91 reference
 document, or both. Use the `--format` flag:
 
 ```bash
@@ -156,44 +158,65 @@ Notes:
   `--format xlsx --output report.docx`, or `--format docx --output report.xlsx`),
   the tool logs a warning and the mismatched path is ignored; routing is
   otherwise unchanged.
-- The cover-page report date is the submission date, computed as the period end
-  date **+ 3 days** (e.g. a 14-20 Sep 2026 week shows `23/09/2026`).
-- The Word report is scoped to a **single account** (JUST UDO AVIATION PRIVATE
-  LIMITED (Fly91), account `674351849978`, prepared by Greatworx). It contains,
-  in order: a cover page, a "security best practices" link table, a per-account
-  Summary section (Billing & Cost Overview plus optional Resource Utilization &
-  Alarms table), and an "-- End Of Document --" trailer. It does **not** include
-  the multi-account "Cost Summary Difference of All AWS Accounts" fleet table.
-  Cost date ranges and alarm dates are populated for whatever week you pass via
-  `--start-date`/`--end-date`.
-- Mock mode (`--mock`) synthesises a representative single-account dataset so the
-  Word report is complete without AWS access. In live mode the configured
-  account is populated from the real collected cost/EC2 data.
-- The "Resource Utilization & Alarms" section now embeds AWS CloudWatch metric
-  graphs per server (one chart image per Fly91 server). In production the charts
-  are drawn from real CloudWatch time-series collected via `GetMetricStatistics`
-  and `GetMetricData`; in `--mock` mode they are synthetic sample charts so the
-  report is complete without AWS access. Charts are rendered with matplotlib
-  using the headless `Agg` backend, so no display is required. Memory and disk
-  metrics require the CloudWatch Agent to be installed on the instances in
-  production (CPU and network metrics are native to AWS/EC2). Chart rendering
-  degrades gracefully: if matplotlib is unavailable or the metric data is empty,
-  the images are skipped and the surrounding text and alarm tables are still
-  generated.
+- The Word report is a **single-account, service-oriented** document for
+  JUST UDO AVIATION PRIVATE LIMITED (Fly91) / Greatworx (account
+  `674351849978`) that reproduces the real reference layout. It contains, in
+  order:
+  1. **Cost Summary Differences** — a per-service cost table
+     (`No | Account Name | Account ID | Services | Last Week | Current Week`)
+     with one row per AWS service (including Inspector and GuardDuty) and a
+     `Total Cost` row (e.g. `$728.33 Tax Excluded Cost` → `$705.25 Tax Excluded
+     Cost`), followed by the cost-analysis bullets (week-over-week decrease
+     amount, percentage, average daily cost, and the services that drove the
+     decrease / offsetting increases).
+  2. **Disclaimer** — the confidentiality paragraph. The preparer org is
+     **configurable** via `word_report.disclaimer_org` in `config.json`
+     (default `Greatworx`); the original reference sample reads "Operisoft".
+     ⚠️ Confirm the correct org name for the Disclaimer with the client.
+  3. **Contents** — an index of the report sections plus the reporting-period
+     date line.
+  4. **BAU Matrix Overview of the resources.** — "Uptime of the servers and
+     applications running on the infrastructure", with six subsections:
+     1 EC2 (server utilization + bandwidth/network tables), 2 RDS (utilization
+     + bandwidth/network tables), 3 ELB (ALB utilization table), 4 AWS WAF
+     (request table), 5 Amazon Inspector (findings summary + embedded
+     console-screenshot images per severity) and 6 Guard Duty (findings summary
+     + embedded console screenshot).
+  5. An **"-- End of Document --"** trailer.
+
+  It is driven by the SAME collected data as the Excel report
+  (`cost`/`ec2`/`elb`/`waf`/`rds`/`inspector`/`guardduty`), and it does **not**
+  include the old Aptech-template elements (the multi-account
+  "Cost Summary Difference of All AWS Accounts" fleet table, the
+  "security best practices" link table, or the "Resource Utilization & Alarms"
+  per-server alarm table). Cost date ranges are populated for whatever week you
+  pass via `--start-date`/`--end-date`.
+- Mock mode (`--mock`) synthesises a representative single-account dataset
+  matching the reference sample figures so the Word report is complete without
+  AWS access. In live mode the sections are populated from the real collected
+  cost/EC2/RDS/ELB/WAF/Inspector/GuardDuty data.
+- The Amazon Inspector and Guard Duty console-screenshot images are rendered
+  with Pillow via `report/screenshots.py`. Optionally, a per-instance
+  CloudWatch metric graph (`report/metric_charts.py`, matplotlib headless
+  `Agg` backend) is embedded under the EC2 table **only when per-instance
+  metric time-series are present**; the reference is tabular, so no graph is
+  forced. All image rendering degrades gracefully: if Pillow/matplotlib is
+  unavailable or the data is empty, the images are skipped and the surrounding
+  text and tables are still generated.
 
 You can verify a generated Word report with the bundled checker:
 
 ```bash
 python3 scripts/verify_word_report.py Weekly_Status_Report.docx
 
-# Also assert that the report embeds at least one CloudWatch graph image:
+# Also assert that the report embeds at least one console-screenshot image:
 python3 scripts/verify_word_report.py Weekly_Status_Report.docx --min-images 1
 ```
 
-The live single-account fallback (no mock `word_accounts`, no
-`word_report.accounts` in config) has its own standalone checker, which builds a
-real-shaped `cost`/`ec2` payload and asserts the single-account Cost Summary and
-CPU-proxy alarm row:
+The live data path (no explicit `cost.per_service` breakdown, deriving the
+cost table from the live `service_breakdown`) has its own standalone checker,
+which feeds a real-shaped `cost`/`ec2`/`elb`/`waf`/`rds`/`inspector`/`guardduty`
+payload and asserts the reference sections render:
 
 ```bash
 python3 scripts/verify_word_live_fallback.py
@@ -269,31 +292,36 @@ Edit `config.json` to customize the report:
 | `report_title` | `Weekly Status Report` | Cover-page title of the Word report |
 | `client_org` | falls back to `client_name` | Client organization name on the cover page |
 | `submitted_by_label` | `Submitted By` | Label shown above the submitter org |
-| `submitter_org` | `Operisoft Technologies Pvt Ltd` | Organization that prepared the report |
-| `activity_org` | falls back to `submitter_org` | Org name used in "No Activity performed by &lt;org&gt;" lines |
+| `submitter_org` | `Greatworx` | Organization that prepared the report |
+| `activity_org` | falls back to `submitter_org` | Org name used for activity attribution |
+| `disclaimer_org` | `Greatworx` | Preparer org named in the **Disclaimer** confidentiality text (reference sample reads "Operisoft") |
 | `word_output_filename` | `Weekly_Status_Report.docx` | Default Word output filename |
 
 All `word_report` keys are optional; omitting the section (or any key) falls
 back to the defaults above, so an older `config.json` keeps working. Swap these
-strings to re-brand the report (e.g. Aptech / Operisoft / Fly91).
+strings to re-brand the report.
 
-### Word report (multi-account mapping)
+> ⚠️ **Confirm the Disclaimer org with the client.** The real reference sample
+> names "Operisoft" in the confidentiality clause, but for Fly91 the preparer
+> is **Greatworx** (the default). Set `word_report.disclaimer_org` to whichever
+> name the client wants to appear in the Disclaimer section.
 
-The client reference document is a **multi-account** report, while the live AWS
-collectors in this project target a **single** account. The Word report is
-therefore driven by an `accounts` list:
+### Word report (single-account, reference-matching)
 
-- In `--mock` mode the list is synthesised in `get_mock_word_accounts()` so the
-  generated `.docx` mirrors the full reference layout; alarm dates are
-  parameterised to the selected week.
-- In live mode the single configured account (`client_name` / `aws_account_id`)
-  is populated from the real collected cost and EC2 data, and appears as account
-  #1. Remaining accounts can be supplied via an optional
-  `word_report.accounts` list in `config.json` if you want the full multi-account
-  table in production.
-- The 48 per-account console screenshots embedded in the original reference
-  `.docx` are account-specific captures that cannot be regenerated from mock
-  data, so the generated report omits them and renders the data as text/tables.
+The Word report reproduces the real Fly91 reference Google-Doc layout and is
+driven by the SAME `collected_data` as the Excel report
+(`cost`/`ec2`/`elb`/`waf`/`rds`/`inspector`/`guardduty`):
+
+- In `--mock` mode `get_mock_data()` supplies a reference-aligned dataset (the
+  27-row per-service cost breakdown totalling `$728.33` → `$705.25`, the 9 EC2
+  instances, 6 RDS instances, 3 ALBs, 2 WAF ACLs, and Inspector / GuardDuty
+  finding counts), so the generated `.docx` matches the reference figures.
+- In live mode the sections are populated from the real collected data. The
+  Cost Summary Differences table prefers an explicit `cost.per_service` list and
+  otherwise derives per-service rows from the live `cost.service_breakdown`.
+- The Amazon Inspector / Guard Duty console screenshots are rendered from the
+  finding data with Pillow; they are embedded images, not account-specific
+  captures.
 
 ---
 

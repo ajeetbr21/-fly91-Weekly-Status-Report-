@@ -267,421 +267,346 @@ def print_summary(collected_data: dict, start_date: date, end_date: date, logger
 # Mock Data Generator
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _alarm_day(start_date: date, offset: int) -> str:
-    """Return a 'September 15' style label for start_date + offset days."""
-    d = start_date + timedelta(days=offset)
-    return f"{d.strftime('%B')} {d.day}"
+# The reference per-service cost breakdown (Last Week / Current Week), taken
+# verbatim from REFERENCE_FLY91_GOOGLEDOC.txt. Each tuple is
+# (service, last_week, current_week). The reference-stated Tax-Excluded totals
+# are $728.33 (last week) -> $705.25 (current week); per-row figures sum to the
+# same within a rounding penny, so the explicit totals below are authoritative.
+_REFERENCE_COST_ROWS = [
+    ("Relational Database Service", 80.51, 73.68),
+    ("Fortinet FortiGate VM Next-Generation Firewall", 171.36, 171.36),
+    ("Savings Plans for Compute Usage", 84.00, 84.00),
+    ("EC2-Other", 86.19, 86.43),
+    ("Elastic Load Balancing", 120.62, 106.97),
+    ("CloudWatch", 78.74, 77.64),
+    ("VPC", 22.36, 21.93),
+    ("EC2-Instances", 20.66, 20.01),
+    ("Config", 27.98, 28.11),
+    ("WAF", 12.66, 11.70),
+    ("Inspector", 7.85, 7.85),
+    ("GuardDuty", 12.64, 12.52),
+    ("Route 53", 0.34, 0.35),
+    ("CloudFront", 0.10, 0.24),
+    ("Key Management Service", 0.30, 0.30),
+    ("S3", 1.23, 1.21),
+    ("Lambda", 0.59, 0.72),
+    ("Secrets Manager", 0.10, 0.10),
+    ("CloudTrail", 0.08, 0.08),
+    ("CodePipeline", 0.00, 0.00),
+    ("SNS", 0.03, 0.06),
+    ("CloudWatch Events", 0.00, 0.00),
+    ("SQS", 0.00, 0.00),
+    ("CloudShell", 0.00, 0.00),
+    ("Glue", 0.00, 0.00),
+    ("DynamoDB", 0.00, 0.00),
+    ("Tax", 0.00, None),
+]
+
+# Reference-stated Tax-Excluded weekly totals.
+_REFERENCE_TOTAL_LAST_WEEK = 728.33
+_REFERENCE_TOTAL_CURRENT_WEEK = 705.25
 
 
-def _mock_hourly_timestamps(start_date: date, end_date: date) -> list:
-    """Deterministic hourly datetimes from start_date 00:00 to end_date 23:00.
+def _build_mock_cost(start_date: date, end_date: date) -> dict:
+    """Build the mock ``cost`` dict matching the Fly91 reference document.
 
-    Pure-stdlib (datetime only); no numpy. Returns a list of naive datetimes
-    spanning the full selected reporting week at one-hour resolution.
+    Carries BOTH:
+      * the per-service breakdown the Word report's "Cost Summary Differences"
+        table and analysis bullets consume (``per_service`` list of
+        {service, last_week, current_week}, plus explicit weekly totals), and
+      * the fields the Excel Cost Analysis sheet already reads
+        (current_week_total, previous_week_total, difference, pct_change,
+        avg_daily_cost, daily_costs, top_services, service_breakdown).
     """
-    start_dt = datetime.combine(start_date, datetime.min.time())
-    end_dt = datetime.combine(end_date, datetime.min.time()) + timedelta(hours=23)
-    stamps = []
-    cur = start_dt
-    while cur <= end_dt:
-        stamps.append(cur)
-        cur += timedelta(hours=1)
-    return stamps
-
-
-def _mock_metric_series(start_date: date, end_date: date, kind: str) -> list:
-    """Build deterministic synthetic weekly series for a mock server.
-
-    Pure Python (datetime/math), NO numpy. ``kind`` selects a shape that is
-    consistent with the server's alarm:
-
-        'disk' - a disk-utilisation (%) series trending up toward/over ~90%,
-                 paired with a memory (%) series.
-        'cpu'  - a CPU-utilisation (%) series that spikes over ~80%, paired
-                 with a memory (%) series.
-
-    Each series is a dict {'label', 'unit', 'timestamps', 'values'} ready for
-    report.metric_charts.render_metric_chart.
-    """
-    timestamps = _mock_hourly_timestamps(start_date, end_date)
-    n = max(len(timestamps), 1)
-
-    def _clamp(v: float) -> float:
-        return round(max(0.0, min(100.0, v)), 2)
-
-    if kind == "disk":
-        # Disk steadily climbs across the week from ~62% toward/over 90%,
-        # with a gentle daily ripple so it reads like a real metric.
-        disk_values = []
-        for i, _ in enumerate(timestamps):
-            trend = 62.0 + (i / n) * 33.0  # ~62 -> ~95 across the week
-            ripple = 2.5 * math.sin(i / 6.0)
-            disk_values.append(_clamp(trend + ripple))
-        # Memory oscillates in a healthy band around ~65%.
-        mem_values = [
-            _clamp(64.0 + 6.0 * math.sin(i / 8.0) + 2.0 * math.cos(i / 3.0))
-            for i in range(n)
-        ]
-        return [
-            {"label": "disk_used_percent", "unit": "%",
-             "timestamps": timestamps, "values": disk_values},
-            {"label": "mem_used_percent", "unit": "%",
-             "timestamps": timestamps, "values": mem_values},
-        ]
-
-    # Default: 'cpu'
-    # CPU baseline ~45% with pronounced daily spikes that exceed ~80%.
-    cpu_values = []
-    for i, _ in enumerate(timestamps):
-        base = 45.0 + 8.0 * math.sin(i / 10.0)
-        spike = 42.0 * max(0.0, math.sin((i / 24.0) * 2.0 * math.pi - 1.0))
-        cpu_values.append(_clamp(base + spike))
-    mem_values = [
-        _clamp(58.0 + 7.0 * math.sin(i / 7.0) + 3.0 * math.cos(i / 4.0))
-        for i in range(n)
-    ]
-    # A representative NetworkIn byte series (unit 'Bytes') so the demo
-    # exercises the mixed-unit secondary-axis path that a live chart hits
-    # when percent and byte series share a chart. Magnitudes are in the
-    # millions, mirroring real NetworkIn counts over an hourly window.
-    net_values = [
-        round(
-            max(
-                0.0,
-                4.0e6
-                + 1.8e6 * math.sin(i / 9.0)
-                + 1.2e6 * math.cos(i / 3.5),
-            ),
-            2,
-        )
-        for i in range(n)
-    ]
-    return [
-        {"label": "CPUUtilization", "unit": "%",
-         "timestamps": timestamps, "values": cpu_values},
-        {"label": "mem_used_percent", "unit": "%",
-         "timestamps": timestamps, "values": mem_values},
-        {"label": "NetworkIn", "unit": "Bytes",
-         "timestamps": timestamps, "values": net_values},
+    per_service = [
+        {"service": svc, "last_week": last, "current_week": curr}
+        for (svc, last, curr) in _REFERENCE_COST_ROWS
     ]
 
+    total_last = _REFERENCE_TOTAL_LAST_WEEK
+    total_curr = _REFERENCE_TOTAL_CURRENT_WEEK
+    difference = round(total_curr - total_last, 2)
+    pct_change = round((difference / total_last) * 100.0, 2) if total_last else 0.0
+    days = max((end_date - start_date).days + 1, 1)
+    avg_daily = round(total_curr / days, 2)
 
-def get_mock_word_accounts(start_date: date, end_date: date) -> list:
-    """
-    Build the single-account dataset that drives the Word (.docx) report.
+    # Build daily cost entries that sum close to the current-week total so the
+    # Excel daily-trend view stays coherent with the weekly total.
+    daily_costs = []
+    base = round(total_curr / days, 2)
+    curr_date = start_date
+    accumulated = 0.0
+    i = 0
+    n_days = days
+    while curr_date <= end_date:
+        if i == n_days - 1:
+            day_cost = round(total_curr - accumulated, 2)
+        else:
+            # Small deterministic ripple around the daily average.
+            ripple = [-3.1, 2.4, -1.8, 4.0, -2.2, 1.5, 0.0][i % 7]
+            day_cost = round(base + ripple, 2)
+            accumulated = round(accumulated + day_cost, 2)
+        daily_costs.append({
+            "date": curr_date.strftime("%Y-%m-%d"),
+            "cost": day_cost,
+        })
+        curr_date += timedelta(days=1)
+        i += 1
 
-    The Word report is scoped to ONE account - JUST UDO AVIATION PRIVATE
-    LIMITED (Fly91), account 674351849978 - so the generated .docx mirrors the
-    reference per-account layout (Billing and Cost Overview + Resource
-    Utilization & Alarms) without the multi-account fleet table. Alarm dates are
-    parameterised to the selected week via `_alarm_day`, so running a different
-    --start-date/--end-date shifts every "September 15(1 Time)"-style label to
-    the matching day of the chosen week.
+    # top_services / service_breakdown feed the Excel Cost Analysis sheet. Derive
+    # them from the per-service current-week costs (skip the Tax row), largest
+    # first, each with its week-over-week pct change for the change indicator.
+    svc_entries = []
+    for svc, last, curr in _REFERENCE_COST_ROWS:
+        if svc == "Tax" or curr is None:
+            continue
+        if last:
+            svc_pct = round(((curr - last) / last) * 100.0, 1)
+        else:
+            svc_pct = 0.0
+        svc_entries.append({
+            "service": svc,
+            "cost": curr,
+            "pct_change": svc_pct,
+            "difference": round(curr - last, 2),
+        })
+    svc_entries.sort(key=lambda s: s["cost"], reverse=True)
+    top_services = [{"service": s["service"], "cost": s["cost"]} for s in svc_entries]
 
-    The single account entry carries:
-        no, account_name, account_id, last_week_cost, tax_cost,
-        current_week_cost, services_text, avg_daily_cost, activity_note,
-        and an optional `alarms` list of
-        {server_name, region, metric, triggers}.
-    """
-    def days() -> int:
-        return (end_date - start_date).days + 1
-
-    def avg(cost: float) -> float:
-        return round(cost / max(days(), 1), 2)
-
-    accounts = [
-        {
-            "no": 1,
-            "account_name": "JUST UDO AVIATION PRIVATE LIMITED (Fly91)",
-            "account_id": "674351849978",
-            "last_week_cost": 1342.17,
-            "tax_cost": 241.59,
-            "current_week_cost": 1287.44,
-            "services_text": "The costs slightly decreased compared to the previous week due to the following services: EC2-Instances, EC2-Other.",
-            "activity_note": None,
-            "alarms": [
-                {
-                    "server_name": "fly91-app-prod(i-0a1b2c3d4e5f60718)",
-                    "region": "ap-south-1",
-                    "metric": "Disk 90%  [/]",
-                    "triggers": [f"{_alarm_day(start_date, 1)}(2 Times)", f"{_alarm_day(start_date, 4)}(1 Time)"],
-                    "metric_series": _mock_metric_series(start_date, end_date, "disk"),
-                },
-                {
-                    "server_name": "fly91-db-prod(i-0b2c3d4e5f6071829)",
-                    "region": "ap-south-1",
-                    "metric": "CPU 80%",
-                    "triggers": [f"{_alarm_day(start_date, 2)}(3 Times)"],
-                    "metric_series": _mock_metric_series(start_date, end_date, "cpu"),
-                },
-            ],
-        },
-    ]
-    for acct in accounts:
-        acct["avg_daily_cost"] = avg(acct["current_week_cost"])
-    return accounts
+    return {
+        "current_week_total": total_curr,
+        "previous_week_total": total_last,
+        "difference": difference,
+        "pct_change": pct_change,
+        "avg_daily_cost": avg_daily,
+        "daily_costs": daily_costs,
+        "top_services": top_services,
+        "service_breakdown": svc_entries,
+        # Reference-aligned per-service breakdown + totals for the Word report.
+        "per_service": per_service,
+        "total_last_week": total_last,
+        "total_current_week": total_curr,
+        "total_last_week_label": "$728.33 Tax Excluded Cost",
+        "total_current_week_label": "$705.25 Tax Excluded Cost",
+    }
 
 
 def get_mock_data(start_date: date, end_date: date) -> dict:
     """Generate realistic mock data matching the exact report spec."""
-    # Generate daily cost entries dynamically based on start_date and end_date
-    daily_costs = []
-    curr_date = start_date
-    idx = 0
-    mock_cost_pattern = [420.50, 435.10, 415.80, 460.25, 450.40, 470.15, 464.25]
-    while curr_date <= end_date:
-        daily_costs.append({
-            "date": curr_date.strftime("%Y-%m-%d"),
-            "cost": mock_cost_pattern[idx % len(mock_cost_pattern)]
-        })
-        curr_date += timedelta(days=1)
-        idx += 1
-
     return {
-        "word_accounts": get_mock_word_accounts(start_date, end_date),
-        "cost": {
-            "current_week_total": 3116.45,
-            "previous_week_total": 3250.00,
-            "difference": -133.55,
-            "pct_change": -4.11,
-            "avg_daily_cost": 445.21,
-            "daily_costs": daily_costs,
-            "top_services": [
-                {"service": "Amazon Elastic Compute Cloud - Compute", "cost": 1850.20},
-                {"service": "Amazon Relational Database Service", "cost": 720.50},
-                {"service": "Amazon Simple Storage Service", "cost": 310.25},
-                {"service": "Elastic Load Balancing", "cost": 120.40},
-                {"service": "AWS WAF", "cost": 85.10},
-                {"service": "Amazon CloudWatch", "cost": 30.00},
-                {"service": "Amazon Inspector", "cost": 18.40},
-                {"service": "Amazon GuardDuty", "cost": 12.75},
-            ],
-            "service_breakdown": [
-                {"service": "Amazon Elastic Compute Cloud - Compute", "cost": 1850.20, "pct_change": -2.5, "difference": -47.40},
-                {"service": "Amazon Relational Database Service", "cost": 720.50, "pct_change": 1.2, "difference": 8.50},
-                {"service": "Amazon Simple Storage Service", "cost": 310.25, "pct_change": 4.5, "difference": 13.30},
-                {"service": "Elastic Load Balancing", "cost": 120.40, "pct_change": -0.8, "difference": -1.00},
-                {"service": "AWS WAF", "cost": 85.10, "pct_change": 12.0, "difference": 9.10},
-                {"service": "Amazon CloudWatch", "cost": 30.00, "pct_change": 0.0, "difference": 0.00},
-                {"service": "Amazon Inspector", "cost": 18.40, "pct_change": 3.4, "difference": 0.60},
-                {"service": "Amazon GuardDuty", "cost": 12.75, "pct_change": 2.0, "difference": 0.25},
-            ]
-        },
+        "cost": _build_mock_cost(start_date, end_date),
+        # The 9 reference EC2 rows (8 running + 1 stopped), verbatim from
+        # REFERENCE_FLY91_GOOGLEDOC.txt. Byte/count values are chosen so that
+        # utils.helpers.format_bytes / format_count render the reference's
+        # human-readable figures (e.g. 1.20 GB, 952.35K). Memory and disk are
+        # carried as display strings where the reference shows a formatted
+        # value (e.g. "50.62", "91.6%", "C: 51.3%"); "-" where the reference
+        # shows no data.
         "ec2": [
             {
-                "name": "InSync Add-in Server",
-                "instance_id": "i-07c0fb23505c71dd8",
-                "instance_type": "r6a.8xlarge",
+                "name": "Fortinet-FW",
+                "instance_id": "i-06a53ce120fca7a28",
+                "instance_type": "c6i.xlarge",
                 "state": "running",
-                "availability_zone": "us-east-1a",
-                "region": "us-east-1",
-                "cpu_min": 0.96,
-                "cpu_max": 18.00,
-                "cpu_avg": 4.79,
-                "memory_min": 56.5,
-                "memory_max": 57.0,
-                "memory_avg": 56.9,
-                "disk_utilization": "C: Min 48.9% Max 49.0% Avg 49.0% | D: Min 12.3% Max 12.8% Avg 12.4%",
-                "network_in": 390 * 1024 * 1024,
-                "network_out": 810 * 1024 * 1024,
-                "network_packets_in": 263000,
-                "network_packets_out": 380000
+                "availability_zone": "ap-south-1a",
+                "region": "ap-south-1",
+                "cpu_min": 0.59,
+                "cpu_max": 6.19,
+                "cpu_avg": 0.83,
+                "memory_avg_display": "-",
+                "disk_utilization": "-",
+                "network_in": int(1.20 * 1024 * 1024 * 1024),
+                "network_out": int(1.26 * 1024 * 1024 * 1024),
+                "network_packets_in": 952350,
+                "network_packets_out": 955080,
             },
             {
-                "name": "ISTARI-App Server",
-                "instance_id": "i-0e68af64896637538",
-                "instance_type": "m7i.large",
+                "name": "FLY91- Staging Website",
+                "instance_id": "i-041cbf2e1ea9a05ee",
+                "instance_type": "t3a.xlarge",
+                "state": "running",
+                "availability_zone": "ap-south-1a",
+                "region": "ap-south-1",
+                "cpu_min": 4.5,
+                "cpu_max": 35.46,
+                "cpu_avg": 9.19,
+                "memory_avg_display": "50.62",
+                "disk_utilization": "91.6%",
+                "network_in": int(1.31 * 1024 * 1024 * 1024),
+                "network_out": int(1.56 * 1024 * 1024 * 1024),
+                "network_packets_in": 1030000,
+                "network_packets_out": 1100000,
+            },
+            {
+                "name": "FLY91- Production Website",
+                "instance_id": "i-056b66d8b569a4a26",
+                "instance_type": "r6a.xlarge",
+                "state": "running",
+                "availability_zone": "ap-south-1b",
+                "region": "ap-south-1",
+                "cpu_min": 2.79,
+                "cpu_max": 77.11,
+                "cpu_avg": 8.87,
+                "memory_avg_display": "48.23",
+                "disk_utilization": "49.0%",
+                "network_in": int(634.38 * 1024 * 1024),
+                "network_out": int(855.01 * 1024 * 1024),
+                "network_packets_in": 446270,
+                "network_packets_out": 169120,
+            },
+            {
+                "name": "Fly91-SFTP",
+                "instance_id": "i-0b108151d07fe2bf8",
+                "instance_type": "t3a.medium",
+                "state": "running",
+                "availability_zone": "ap-south-1b",
+                "region": "ap-south-1",
+                "cpu_min": 2.65,
+                "cpu_max": 49.97,
+                "cpu_avg": 3.89,
+                "memory_avg_display": "25.35",
+                "disk_utilization": "76.3%",
+                "network_in": int(88.54 * 1024 * 1024),
+                "network_out": int(14.32 * 1024 * 1024),
+                "network_packets_in": 58770,
+                "network_packets_out": 17500,
+            },
+            {
+                "name": "Fly91-Desk",
+                "instance_id": "i-0e24da06be3f86a40",
+                "instance_type": "t3a.medium",
+                "state": "running",
+                "availability_zone": "ap-south-1c",
+                "region": "ap-south-1",
+                "cpu_min": 1.25,
+                "cpu_max": 28.72,
+                "cpu_avg": 1.8,
+                "memory_avg_display": "73.97",
+                "disk_utilization": "21.8%",
+                "network_in": int(88.29 * 1024 * 1024),
+                "network_out": int(424.86 * 1024),
+                "network_packets_in": 58600,
+                "network_packets_out": 3640,
+            },
+            {
+                "name": "FLY91-Website-testing",
+                "instance_id": "i-0d0653d04b9306f42",
+                "instance_type": "r6a.large",
                 "state": "stopped",
-                "availability_zone": "us-east-1b",
-                "region": "us-east-1",
+                "availability_zone": "ap-south-1c",
+                "region": "ap-south-1",
                 "cpu_min": None,
                 "cpu_max": None,
                 "cpu_avg": None,
-                "memory_min": None,
-                "memory_max": None,
-                "memory_avg": None,
-                "disk_utilization": None,
+                "memory_avg_display": "-",
+                "disk_utilization": "-",
                 "network_in": None,
                 "network_out": None,
                 "network_packets_in": None,
-                "network_packets_out": None
+                "network_packets_out": None,
             },
             {
-                "name": "ISTARI-DB Server",
-                "instance_id": "i-0bc7cb7733cccd23b",
-                "instance_type": "m7i.12xlarge",
+                "name": "Fly91-Development-Server-Windows",
+                "instance_id": "i-00a0097da058e39a1",
+                "instance_type": "t3a.xlarge",
                 "state": "running",
-                "availability_zone": "us-east-1c",
-                "region": "us-east-1",
-                "cpu_min": 0.16,
-                "cpu_max": 1.86,
-                "cpu_avg": 0.28,
-                "memory_min": 11.5,
-                "memory_max": 12.8,
-                "memory_avg": 12.2,
-                "disk_utilization": "/ Min 23.0% Max 24.0% Avg 23.6%",
-                "network_in": 251 * 1024 * 1024,
-                "network_out": 672 * 1024 * 1024,
-                "network_packets_in": 128000,
-                "network_packets_out": 292000
+                "availability_zone": "ap-south-1a",
+                "region": "ap-south-1",
+                "cpu_min": 9.93,
+                "cpu_max": 58.83,
+                "cpu_avg": 14.3,
+                "memory_avg_display": "55.21",
+                "disk_utilization": "C: 51.3%",
+                "network_in": int(63.74 * 1024 * 1024),
+                "network_out": int(10.83 * 1024 * 1024),
+                "network_packets_in": 42440,
+                "network_packets_out": 16410,
             },
             {
-                "name": "InSync Website Server",
-                "instance_id": "i-0a8f07365bce735f6",
-                "instance_type": "t3a.medium",
+                "name": "Fly91-Development-Server-Ubuntu",
+                "instance_id": "i-0233bf5f2a51870df",
+                "instance_type": "t3a.xlarge",
                 "state": "running",
-                "availability_zone": "us-east-1d",
-                "region": "us-east-1",
-                "cpu_min": 1.42,
-                "cpu_max": 54.40,
-                "cpu_avg": 2.47,
-                "memory_min": 30.5,
-                "memory_max": 33.2,
-                "memory_avg": 31.9,
-                "disk_utilization": "/ Min 12.0% Max 13.5% Avg 12.8%",
-                "network_in": 168 * 1024 * 1024,
-                "network_out": 247 * 1024 * 1024,
-                "network_packets_in": 24000,
-                "network_packets_out": 102000
+                "availability_zone": "ap-south-1b",
+                "region": "ap-south-1",
+                "cpu_min": 2.49,
+                "cpu_max": 42.45,
+                "cpu_avg": 5.77,
+                "memory_avg_display": "48.75",
+                "disk_utilization": "87.7%",
+                "network_in": int(186.64 * 1024 * 1024),
+                "network_out": int(141.11 * 1024 * 1024),
+                "network_packets_in": 136220,
+                "network_packets_out": 97710,
             },
             {
-                "name": "InSync ClickHouse-Database",
-                "instance_id": "i-029867634022c4d78",
-                "instance_type": "c7i.12xlarge",
+                "name": "FLY91 - Data Science Production",
+                "instance_id": "i-08b66727cdf8d5896",
+                "instance_type": "t3a.large",
                 "state": "running",
-                "availability_zone": "us-east-1a",
-                "region": "us-east-1",
-                "cpu_min": 2.75,
-                "cpu_max": 22.20,
-                "cpu_avg": 6.02,
-                "memory_min": 31.0,
-                "memory_max": 35.0,
-                "memory_avg": 33.2,
-                "disk_utilization": "/ Min 39.5% Max 41.2% Avg 40.3%",
-                "network_in": 694 * 1024 * 1024,
-                "network_out": int(1.2 * 1024 * 1024 * 1024),
-                "network_packets_in": 461000,
-                "network_packets_out": 509000
+                "availability_zone": "ap-south-1c",
+                "region": "ap-south-1",
+                "cpu_min": 0.89,
+                "cpu_max": 32.93,
+                "cpu_avg": 5.15,
+                "memory_avg_display": "9.22",
+                "disk_utilization": "14.2%",
+                "network_in": int(109.23 * 1024 * 1024),
+                "network_out": int(48.32 * 1024 * 1024),
+                "network_packets_in": 75590,
+                "network_packets_out": 33800,
             },
-            {
-                "name": "InSync Nexus Server",
-                "instance_id": "i-09a1b5ff52381b04b",
-                "instance_type": "m6i.8xlarge",
-                "state": "running",
-                "availability_zone": "us-east-1b",
-                "region": "us-east-1",
-                "cpu_min": 5.44,
-                "cpu_max": 29.60,
-                "cpu_avg": 7.63,
-                "memory_min": 49.5,
-                "memory_max": 52.5,
-                "memory_avg": 51.0,
-                "disk_utilization": "/ Min 71.0% Max 74.5% Avg 72.8%",
-                "network_in": int(1.2 * 1024 * 1024 * 1024),
-                "network_out": 421 * 1024 * 1024,
-                "network_packets_in": 1400000,
-                "network_packets_out": 108000
-            },
-            {
-                "name": "InSync Weave-Server",
-                "instance_id": "i-05966c44f5be655cc",
-                "instance_type": "c7i.12xlarge",
-                "state": "running",
-                "availability_zone": "us-east-1c",
-                "region": "us-east-1",
-                "cpu_min": 6.12,
-                "cpu_max": 10.70,
-                "cpu_avg": 6.54,
-                "memory_min": 19.5,
-                "memory_max": 21.5,
-                "memory_avg": 20.5,
-                "disk_utilization": "/ Min 49.5% Max 52.0% Avg 50.9%",
-                "network_in": 261 * 1024 * 1024,
-                "network_out": 12 * 1024 * 1024,
-                "network_packets_in": 273000,
-                "network_packets_out": 22000
-            },
-            {
-                "name": "InSync-Pipelines Server",
-                "instance_id": "i-08b99bf46815a7d38",
-                "instance_type": "m7i.large",
-                "state": "running",
-                "availability_zone": "us-east-1d",
-                "region": "us-east-1",
-                "cpu_min": 1.04,
-                "cpu_max": 7.13,
-                "cpu_avg": 1.46,
-                "memory_min": 45.0,
-                "memory_max": 50.0,
-                "memory_avg": 48.1,
-                "disk_utilization": "/ Min 61.5% Max 65.0% Avg 63.3%",
-                "network_in": 2 * 1024 * 1024 * 1024,
-                "network_out": 101 * 1024 * 1024,
-                "network_packets_in": 98000,
-                "network_packets_out": 47200
-            },
-            {
-                "name": "ISTARI-App-Server-ASG",
-                "instance_id": "i-06559919372821d45",
-                "instance_type": "c7i.12xlarge",
-                "state": "running",
-                "availability_zone": "us-east-1a",
-                "region": "us-east-1",
-                "cpu_min": 0.57,
-                "cpu_max": 4.28,
-                "cpu_avg": 1.51,
-                "memory_min": None,
-                "memory_max": None,
-                "memory_avg": None,
-                "disk_utilization": "/ Min 13.5% Max 15.2% Avg 14.5%",
-                "network_in": 575 * 1024 * 1024,
-                "network_out": 241 * 1024 * 1024,
-                "network_packets_in": 424000,
-                "network_packets_out": 21600
-            }
         ],
+        # The 3 reference ALBs (Sum-utilisation), verbatim from the reference.
+        # Byte/count helpers render processed_bytes/requests/connections to the
+        # reference's human-readable figures; target_response_time is seconds
+        # (format_duration renders 1.109 s / 322.8 ms / 274.7 ms).
         "elb": [
             {
-                "name": "ISTARI-ALB",
-                "requests": 18900,
-                "active_connections": 28000,
-                "new_connections": 13100,
-                "consumed_lcus": 0.017,
-                "http_redirect_count": 409,
-                "processed_bytes": int(1.70 * 1024 * 1024),
-                "target_response_time": 1.74
+                "name": "Stage-Fly91-ALB",
+                "requests": 1120,
+                "active_connections": 2240,
+                "new_connections": 1600,
+                "consumed_lcus": 2.41,
+                "http_redirect_count": 30,
+                "processed_bytes": int(2.41 * 1024 * 1024 * 1024),
+                "target_response_time": 1.109,
             },
             {
-                "name": "NEXUS-ALB",
-                "requests": 34000,
-                "active_connections": 45500,
-                "new_connections": 18400,
-                "consumed_lcus": 0.021,
-                "http_redirect_count": 560,
-                "processed_bytes": int(2.1 * 1024 * 1024),
-                "target_response_time": 0.36
+                "name": "Prod-Fly91-ALB",
+                "requests": 25000,
+                "active_connections": 4360,
+                "new_connections": 8560,
+                "consumed_lcus": 3.08,
+                "http_redirect_count": 218,
+                "processed_bytes": int(3.08 * 1024 * 1024 * 1024),
+                "target_response_time": 0.3228,
             },
             {
-                "name": "Weave-ALB",
-                "requests": 1640,
-                "active_connections": 4600,
-                "new_connections": 6130,
-                "consumed_lcus": 0.001,
-                "http_redirect_count": 758,
-                "processed_bytes": 298 * 1024 * 1024,
-                "target_response_time": 0.83
-            }
+                "name": "Fly91-Development-ALB",
+                "requests": 2340,
+                "active_connections": 843,
+                "new_connections": 3370,
+                "consumed_lcus": 0.04,
+                "http_redirect_count": 2090,
+                "processed_bytes": int(17.70 * 1024 * 1024),
+                "target_response_time": 0.2747,
+            },
         ],
+        # The 2 reference WAF web ACLs (Mumbai region), verbatim.
         "waf": [
             {
-                "name": "Istari-App-NewDeployment",
-                "total_requests": 7660,
-                "blocked_requests": 15,
-                "allowed_requests": 7620,
-                "captcha_requests": 4,
-                "challenge_requests": 20
-            }
+                "name": "Prod-WAF-Fly-91",
+                "total_requests": 9150000,
+                "blocked_requests": 88720,
+                "allowed_requests": 9060000,
+            },
+            {
+                "name": "Stag-WAF-Fly-91",
+                "total_requests": 246450,
+                "blocked_requests": 5040,
+                "allowed_requests": 241410,
+            },
         ],
         "s3": [
             {"name": "databricks-workspace-stack-5fd33-bucket", "region": "us-east-1", "total_size_bytes": 5.9 * 1024 * 1024, "total_objects": 79},
@@ -699,17 +624,102 @@ def get_mock_data(start_date: date, end_date: date) -> dict:
             {"name": "istari-patching-logs", "region": "us-east-1", "total_size_bytes": 0.0, "total_objects": 0},
             {"name": "textractprogrammerbucket", "region": "us-east-1", "total_size_bytes": 0.0, "total_objects": 0},
         ],
-        "rds": [],
+        # The 6 reference RDS instances, verbatim. Utilisation / free-memory /
+        # free-storage / throughput values are carried as display strings
+        # because the reference shows pre-formatted values (e.g. "0.5 GB out of
+        # 2GB", "817.54 KB"). down_time "No" matches the reference.
+        "rds": [
+            {
+                "name": "fly91-data-science-production-db",
+                "down_time": "No",
+                "instance_type": "db.t4g.small",
+                "min_utilization": "3.78%",
+                "max_utilization": "30.61%",
+                "avg_utilization": "8.74%",
+                "free_memory": "0.5 GB out of 2GB",
+                "free_storage": "15.8GB out of 20 GB",
+                "network_transmit_throughput": "817.54 KB",
+                "network_receive_throughput": "77.25 KB",
+                "max_db_connections": 5,
+            },
+            {
+                "name": "fly91-db",
+                "down_time": "No",
+                "instance_type": "db.r7g.large",
+                "min_utilization": "2.9%",
+                "max_utilization": "47.49%",
+                "avg_utilization": "3.72%",
+                "free_memory": "1.86GB out of 16 GB",
+                "free_storage": "89.1GB out of 100 GB",
+                "network_transmit_throughput": "24.70 MB",
+                "network_receive_throughput": "9.52 MB",
+                "max_db_connections": 12,
+            },
+            {
+                "name": "fly91-dev-db",
+                "down_time": "No",
+                "instance_type": "db.t3.large",
+                "min_utilization": "14.41%",
+                "max_utilization": "100.0%",
+                "avg_utilization": "46.17%",
+                "free_memory": "0.86GB out of 8 GB",
+                "free_storage": "21.4GB out of 30 GB",
+                "network_transmit_throughput": "15.78 MB",
+                "network_receive_throughput": "142.12 KB",
+                "max_db_connections": 68,
+            },
+            {
+                "name": "fly91-development-psql",
+                "down_time": "No",
+                "instance_type": "db.t3.medium",
+                "min_utilization": "4.44%",
+                "max_utilization": "79.77%",
+                "avg_utilization": "13.32%",
+                "free_memory": "2.90GB out of 4 GB",
+                "free_storage": "0.8GB out of 77 GB",
+                "network_transmit_throughput": "15.58 MB",
+                "network_receive_throughput": "2.50 MB",
+                "max_db_connections": 134,
+            },
+            {
+                "name": "fly91-prod-psql-db",
+                "down_time": "No",
+                "instance_type": "db.t3.large",
+                "min_utilization": "5.92%",
+                "max_utilization": "100.0%",
+                "avg_utilization": "43.76%",
+                "free_memory": "4.35GB out of 8 GB",
+                "free_storage": "9.0GB out of 100 GB",
+                "network_transmit_throughput": "9.79 MB",
+                "network_receive_throughput": "2.21 MB",
+                "max_db_connections": 210,
+            },
+            {
+                "name": "fly91-uat-psql-db",
+                "down_time": "No",
+                "instance_type": "db.t3.medium",
+                "min_utilization": "5.65%",
+                "max_utilization": "99.57%",
+                "avg_utilization": "39.4%",
+                "free_memory": "2.00GB out of 4 GB",
+                "free_storage": "27.1GB out of 50 GB",
+                "network_transmit_throughput": "18.92 MB",
+                "network_receive_throughput": "772.02 KB",
+                "max_db_connections": 193,
+            },
+        ],
         "inspector": {
             "date_range": f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+            # Reference: 400+ findings categorised as 39 Critical, 200+ High,
+            # 200+ medium, 15 low and 10 untriaged.
             "severity_counts": {
-                "CRITICAL": 2,
-                "HIGH": 6,
-                "MEDIUM": 7,
-                "LOW": 4,
-                "INFORMATIONAL": 1,
+                "CRITICAL": 39,
+                "HIGH": 200,
+                "MEDIUM": 200,
+                "LOW": 15,
+                "UNTRIAGED": 10,
             },
-            "total_findings": 20,
+            "total_findings": 464,
             "collection_status": "ok",
             "collection_error": None,
             "findings": [
@@ -737,8 +747,10 @@ def get_mock_data(start_date: date, end_date: date) -> dict:
         },
         "guardduty": {
             "date_range": f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
-            "severity_counts": {"HIGH": 3, "MEDIUM": 3, "LOW": 2},
-            "total_findings": 8,
+            # Reference: 66 new findings this week, categorised as 3 lows,
+            # 0 Medium and High.
+            "severity_counts": {"HIGH": 0, "MEDIUM": 0, "LOW": 3},
+            "total_findings": 66,
             "collection_status": "ok",
             "collection_error": None,
             "findings": [
