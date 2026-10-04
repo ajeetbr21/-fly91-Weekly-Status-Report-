@@ -199,6 +199,24 @@ class ExecutiveSummarySheet:
         ]
         for label, count in items:
             row = self._kv_row(ws, row, label, str(count))
+
+        # Security findings (Inspector + GuardDuty) — headline security data
+        inspector = all_data.get("inspector") or {}
+        guardduty = all_data.get("guardduty") or {}
+        insp_total = int(inspector.get("total_findings", 0) or 0)
+        gd_total = int(guardduty.get("total_findings", 0) or 0)
+        insp_counts = inspector.get("severity_counts", {}) or {}
+        insp_crit_high = int(insp_counts.get("CRITICAL", 0) or 0) + int(
+            insp_counts.get("HIGH", 0) or 0
+        )
+        gd_high = int((guardduty.get("severity_counts", {}) or {}).get("HIGH", 0) or 0)
+
+        row = self._kv_row(
+            ws, row,
+            "Security Findings",
+            f"Inspector {insp_total} (Crit/High {insp_crit_high})  |  "
+            f"GuardDuty {gd_total} (High {gd_high})",
+        )
         return row
 
     # ── Health Traffic Lights ─────────────────────────────────────────
@@ -320,5 +338,45 @@ class ExecutiveSummarySheet:
                 checks.append(("RDS Health", "🟢 HEALTHY", "All databases healthy"))
         else:
             checks.append(("RDS Health", "🟢 HEALTHY", "No RDS instances in scope"))
+
+        # Security Findings health (Amazon Inspector + GuardDuty)
+        inspector = all_data.get("inspector") or {}
+        guardduty = all_data.get("guardduty") or {}
+        insp_counts = inspector.get("severity_counts", {}) or {}
+        gd_counts = guardduty.get("severity_counts", {}) or {}
+
+        insp_status = inspector.get("collection_status", "ok")
+        gd_status = guardduty.get("collection_status", "ok")
+
+        crit = int(insp_counts.get("CRITICAL", 0) or 0)
+        high = int(insp_counts.get("HIGH", 0) or 0) + int(gd_counts.get("HIGH", 0) or 0)
+        medium = int(insp_counts.get("MEDIUM", 0) or 0) + int(
+            gd_counts.get("MEDIUM", 0) or 0
+        )
+
+        if "error" in (insp_status, gd_status):
+            checks.append((
+                "Security Findings",
+                "🟡 WARNING",
+                "Collection failed / access denied — results incomplete",
+            ))
+        elif crit > 0 or high > 0:
+            checks.append((
+                "Security Findings",
+                "🔴 CRITICAL",
+                f"{crit} Critical, {high} High finding(s) this week",
+            ))
+        elif medium > 0:
+            checks.append((
+                "Security Findings",
+                "🟡 WARNING",
+                f"{medium} Medium finding(s) this week",
+            ))
+        else:
+            checks.append((
+                "Security Findings",
+                "🟢 HEALTHY",
+                "No high-severity Inspector/GuardDuty findings",
+            ))
 
         return checks

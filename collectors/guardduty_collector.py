@@ -12,7 +12,7 @@ that score to a label:
 """
 
 from datetime import datetime, time, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from botocore.exceptions import ClientError, BotoCoreError
 
@@ -40,7 +40,7 @@ class GuardDutyCollector(BaseCollector):
         severity_counts: Dict[str, int] = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
         findings: List[Dict[str, Any]] = []
 
-        raw_findings = self._list_findings()
+        raw_findings, collection_status, collection_error = self._list_findings()
         for raw in raw_findings:
             finding = self._parse_finding(raw)
             label = finding["severity_label"].upper()
@@ -55,6 +55,11 @@ class GuardDutyCollector(BaseCollector):
             "severity_counts": severity_counts,
             "total_findings": len(findings),
             "findings": findings,
+            # collection_status is "ok" when the API calls succeeded (even
+            # with zero findings) and "error" when they failed, so the sheet
+            # can distinguish a clean week from a failed/denied query.
+            "collection_status": collection_status,
+            "collection_error": collection_error,
         }
 
         self.logger.info(
@@ -66,8 +71,28 @@ class GuardDutyCollector(BaseCollector):
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _list_findings(self) -> List[dict]:
-        """List GuardDuty findings (with detail) for all detectors."""
+    def _list_findings(self) -> Tuple[List[dict], str, Optional[str]]:
+        """List GuardDuty findings (with detail) for all detectors.
+
+        Returns a ``(findings, status, error)`` tuple.  ``status`` is
+        ``"ok"`` when the API calls completed (even if zero findings were
+        returned) and ``"error"`` when they failed.  Behaviour remains
+        fail-open (the report never crashes), but the status/error are
+        surfaced so the sheet can render a distinct "collection failed"
+        state rather than a silently-empty table.
+
+        Time-window semantics: GuardDuty keeps a finding open and bumps
+        ``updatedAt`` as the same activity recurs, so a threat created
+        before the window but still firing during it has a ``createdAt``
+        outside the window.  To capture findings *active during* the week
+        (the intended "one week" meaning for a BAU security review) we
+        filter on ``updatedAt`` rather than ``createdAt``; ``updatedAt``
+        equals ``createdAt`` for findings that are both created and last
+        active in the window, so new findings are still included.  The
+        exact semantics could not be confirmed against the reference
+        document, so this is a defensible choice documented here and in
+        FEAT-003 findings.
+        """
         guardduty = self._get_client("guardduty")
         results: List[dict] = []
 
@@ -86,7 +111,7 @@ class GuardDutyCollector(BaseCollector):
 
         finding_criteria = {
             "Criterion": {
-                "createdAt": {"GreaterThanOrEqual": start_ms, "LessThanOrEqual": end_ms}
+                "updatedAt": {"GreaterThanOrEqual": start_ms, "LessThanOrEqual": end_ms}
             }
         }
 
@@ -124,7 +149,8 @@ class GuardDutyCollector(BaseCollector):
                     results.extend(get_resp.get("Findings", []))
         except (ClientError, BotoCoreError) as exc:
             self.logger.warning("Failed to list GuardDuty findings: %s", exc)
-        return results
+            return results, "error", str(exc)
+        return results, "ok", None
 
     def _parse_finding(self, raw: dict) -> Dict[str, Any]:
         """Normalise a raw GuardDuty finding into the report shape."""

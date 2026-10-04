@@ -541,6 +541,8 @@ def get_mock_data(start_date: date, end_date: date) -> dict:
                 "INFORMATIONAL": 1,
             },
             "total_findings": 20,
+            "collection_status": "ok",
+            "collection_error": None,
             "findings": [
                 {"title": "CVE-2024-3094 - xz-utils backdoor (liblzma)", "severity": "CRITICAL", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Nexus Server (i-09a1b5ff52381b04b)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2024-3094", "first_observed": start_date.strftime('%Y-%m-%d'), "status": "ACTIVE"},
                 {"title": "CVE-2021-44228 - Apache Log4j2 RCE (Log4Shell)", "severity": "CRITICAL", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "ISTARI-DB Server (i-0bc7cb7733cccd23b)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2021-44228", "first_observed": start_date.strftime('%Y-%m-%d'), "status": "ACTIVE"},
@@ -568,6 +570,8 @@ def get_mock_data(start_date: date, end_date: date) -> dict:
             "date_range": f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
             "severity_counts": {"HIGH": 3, "MEDIUM": 3, "LOW": 2},
             "total_findings": 8,
+            "collection_status": "ok",
+            "collection_error": None,
             "findings": [
                 {"title": "Bitcoin-related domain name queried by i-09a1b5ff52381b04b", "type": "CryptoCurrency:EC2/BitcoinTool.B!DNS", "severity_label": "HIGH", "severity_score": 8.0, "resource_type": "Instance", "region": "us-east-1", "count": 12, "first_seen": start_date.strftime('%Y-%m-%d'), "last_seen": (start_date + timedelta(days=2)).strftime('%Y-%m-%d')},
                 {"title": "EC2 instance i-0bc7cb7733cccd23b is the target of SSH brute force attacks", "type": "UnauthorizedAccess:EC2/SSHBruteForce", "severity_label": "HIGH", "severity_score": 7.5, "resource_type": "Instance", "region": "us-east-1", "count": 48, "first_seen": start_date.strftime('%Y-%m-%d'), "last_seen": (start_date + timedelta(days=5)).strftime('%Y-%m-%d')},

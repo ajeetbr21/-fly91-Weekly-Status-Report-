@@ -69,6 +69,13 @@ class DashboardSheet:
         # Title bar across the top
         styles.apply_title_bar(ws, 1, "Dashboard – Visual Analytics", 16)
 
+        # Security-findings summary line (Inspector + GuardDuty) so the
+        # at-a-glance Dashboard references the headline security posture.
+        try:
+            self._write_security_summary(ws, all_data, styles)
+        except Exception as exc:
+            logger.warning("Failed to write Dashboard security summary: %s", exc)
+
         # Track current data-write row
         self._data_row = self.DATA_START_ROW
 
@@ -131,6 +138,55 @@ class DashboardSheet:
 
         ws.sheet_view.showGridLines = False
         return ws
+
+    # ------------------------------------------------------------------
+    # Security summary
+    # ------------------------------------------------------------------
+
+    # Row for the security-findings summary line — below the chart grid
+    # (charts occupy rows 2..~82) and above the hidden data area (row 85).
+    SECURITY_SUMMARY_ROW = 83
+
+    def _write_security_summary(self, ws, all_data, styles):
+        """Write a one-line Inspector + GuardDuty security summary."""
+        inspector = all_data.get("inspector") or {}
+        guardduty = all_data.get("guardduty") or {}
+
+        insp_counts = inspector.get("severity_counts", {}) or {}
+        gd_counts = guardduty.get("severity_counts", {}) or {}
+
+        insp_total = int(inspector.get("total_findings", 0) or 0)
+        gd_total = int(guardduty.get("total_findings", 0) or 0)
+        insp_crit = int(insp_counts.get("CRITICAL", 0) or 0)
+        insp_high = int(insp_counts.get("HIGH", 0) or 0)
+        gd_high = int(gd_counts.get("HIGH", 0) or 0)
+
+        insp_status = inspector.get("collection_status", "ok")
+        gd_status = guardduty.get("collection_status", "ok")
+
+        row = self.SECURITY_SUMMARY_ROW
+        styles.apply_section_header(ws, row, "Security Findings (Inspector + GuardDuty)", 16)
+        row += 1
+
+        if "error" in (insp_status, gd_status):
+            text = (
+                "⚠ Security findings collection failed / access denied — "
+                "counts below may be incomplete."
+            )
+        else:
+            text = (
+                f"Amazon Inspector: {insp_total} findings "
+                f"(Critical {insp_crit}, High {insp_high})   |   "
+                f"Amazon GuardDuty: {gd_total} findings (High {gd_high}). "
+                "See the Inspector and GuardDuty sheets for detail."
+            )
+
+        from openpyxl.utils import get_column_letter as _gcl
+        ws.merge_cells(f"A{row}:{_gcl(16)}{row}")
+        cell = ws.cell(row=row, column=1, value=text)
+        cell.font = ReportStyles.FONT_DATA_BOLD
+        cell.alignment = ReportStyles.ALIGN_LEFT
+        ws.row_dimensions[row].height = 24
 
     # ------------------------------------------------------------------
     # Data-writing helpers

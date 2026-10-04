@@ -9,7 +9,7 @@ and status.
 """
 
 from datetime import datetime, time, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from botocore.exceptions import ClientError, BotoCoreError
 
@@ -40,7 +40,7 @@ class InspectorCollector(BaseCollector):
         severity_counts: Dict[str, int] = {sev: 0 for sev in self.SEVERITY_ORDER}
         findings: List[Dict[str, Any]] = []
 
-        raw_findings = self._list_findings()
+        raw_findings, collection_status, collection_error = self._list_findings()
         for raw in raw_findings:
             finding = self._parse_finding(raw)
             severity = finding["severity"]
@@ -55,6 +55,11 @@ class InspectorCollector(BaseCollector):
             "severity_counts": severity_counts,
             "total_findings": len(findings),
             "findings": findings,
+            # collection_status is "ok" when the API call succeeded (even
+            # with zero findings) and "error" when it failed, so the sheet
+            # can distinguish a clean week from a failed/denied query.
+            "collection_status": collection_status,
+            "collection_error": collection_error,
         }
 
         self.logger.info(
@@ -66,8 +71,16 @@ class InspectorCollector(BaseCollector):
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _list_findings(self) -> List[dict]:
-        """List Inspector v2 findings filtered to the reporting window."""
+    def _list_findings(self) -> Tuple[List[dict], str, Optional[str]]:
+        """List Inspector v2 findings filtered to the reporting window.
+
+        Returns a ``(findings, status, error)`` tuple.  ``status`` is
+        ``"ok"`` when the API call completed (even if zero findings were
+        returned) and ``"error"`` when it failed.  Failure is still
+        fail-open (the report never crashes), but the status/error are
+        surfaced so the sheet can render a distinct "collection failed"
+        state instead of a silently-empty table.
+        """
         inspector = self._get_client("inspector2")
         results: List[dict] = []
 
@@ -94,7 +107,8 @@ class InspectorCollector(BaseCollector):
                 params["nextToken"] = next_token
         except (ClientError, BotoCoreError) as exc:
             self.logger.warning("Failed to list Inspector findings: %s", exc)
-        return results
+            return results, "error", str(exc)
+        return results, "ok", None
 
     def _parse_finding(self, raw: dict) -> Dict[str, Any]:
         """Normalise a raw Inspector v2 finding into the report shape."""

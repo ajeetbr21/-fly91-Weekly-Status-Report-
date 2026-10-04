@@ -58,6 +58,8 @@ class InspectorSheet:
         severity_counts = inspector_data.get("severity_counts", {}) or {}
         findings = inspector_data.get("findings", []) or []
         date_range = inspector_data.get("date_range", "N/A")
+        collection_status = inspector_data.get("collection_status", "ok")
+        collection_error = inspector_data.get("collection_error")
 
         total_cols = len(self.DETAIL_HEADERS)
         row = 1
@@ -73,6 +75,16 @@ class InspectorSheet:
             ws, row, f"Reporting Period: {date_range}", total_cols
         )
         row += 2
+
+        # ── Collection-failure banner ────────────────────────────────
+        # When the collector could not query Inspector (e.g. the service
+        # is not enabled or the IAM role lacks inspector2:ListFindings),
+        # make the failure visible instead of showing an empty table that
+        # looks identical to a clean week.
+        if collection_status == "error":
+            row = self._write_collection_error(
+                ws, row, total_cols, collection_error
+            )
 
         # ── Severity summary table ────────────────────────────────────
         styles.apply_section_header(ws, row, "Severity Summary", total_cols)
@@ -111,7 +123,13 @@ class InspectorSheet:
 
         if not findings:
             ws.merge_cells(f"A{row}:{get_column_letter(total_cols)}{row}")
-            cell = ws.cell(row=row, column=1, value="No Inspector findings available.")
+            if collection_status == "error":
+                empty_msg = (
+                    "Collection failed - findings unavailable (see warning above)."
+                )
+            else:
+                empty_msg = "No Inspector findings for this week (clean)."
+            cell = ws.cell(row=row, column=1, value=empty_msg)
             cell.font = ReportStyles.FONT_DATA
             cell.alignment = ReportStyles.ALIGN_CENTER
             row += 1
@@ -149,6 +167,30 @@ class InspectorSheet:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _write_collection_error(self, ws, row, total_cols, error):
+        """Render a distinct red banner when Inspector collection failed."""
+        ws.merge_cells(f"A{row}:{get_column_letter(total_cols)}{row}")
+        msg = (
+            "⚠ Inspector findings could NOT be collected (collection failed / "
+            "access denied). This is NOT a clean week - the result below is "
+            "empty because the API call did not succeed. Verify the service is "
+            "enabled and the IAM role has inspector2:ListFindings."
+        )
+        cell = ws.cell(row=row, column=1, value=msg)
+        cell.fill = ReportStyles.FILL_RED
+        cell.font = Font(name="Calibri", size=10, bold=True, color=ReportStyles.RED_FG)
+        cell.alignment = ReportStyles.ALIGN_LEFT
+        ws.row_dimensions[row].height = 42
+        row += 1
+        if error:
+            ws.merge_cells(f"A{row}:{get_column_letter(total_cols)}{row}")
+            det = ws.cell(row=row, column=1, value=f"Details: {error}")
+            det.font = ReportStyles.FONT_SMALL
+            det.alignment = ReportStyles.ALIGN_LEFT
+            row += 1
+        row += 1
+        return row
 
     def _embed_findings_screenshot(self, ws, row, findings, date_range, styles):
         """

@@ -76,6 +76,10 @@ image (the tables are unaffected).
    - `elasticloadbalancing:DescribeLoadBalancers`
    - `wafv2:ListWebACLs`
    - `wafv2:GetWebACL`
+   - `inspector2:ListFindings`
+   - `guardduty:ListDetectors`
+   - `guardduty:ListFindings`
+   - `guardduty:GetFindings`
    - `s3:ListAllMyBuckets`
    - `s3:GetBucketLocation`
    - `rds:DescribeDBInstances`
