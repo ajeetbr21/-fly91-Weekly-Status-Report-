@@ -406,12 +406,19 @@ class WordReport:
                 style="List Bullet",
             )
 
+    # The reference lists the six largest movers in each direction. Cap the
+    # analysis bullets to this many so they match the reference prose rather
+    # than enumerating every tiny per-service delta.
+    _MAX_MOVEMENTS = 6
+
     @staticmethod
     def _service_movements(rows: Sequence[Dict[str, Any]]):
         """Split services into (decreases, increases) formatted strings.
 
         Each entry is "<service>: -$x.xx" / "+$x.xx", ordered by magnitude of
-        change (largest first), skipping the Tax row and zero-change rows.
+        change (largest first), skipping the Tax row and zero-change rows. Each
+        list is capped to the ``_MAX_MOVEMENTS`` largest movers so the bullets
+        match the reference's six-service decrease/increase lists.
         """
         movements = []
         for row in rows:
@@ -428,9 +435,9 @@ class WordReport:
             movements.append((svc, delta))
 
         decreases = sorted((m for m in movements if m[1] < 0),
-                           key=lambda m: m[1])
+                           key=lambda m: m[1])[:WordReport._MAX_MOVEMENTS]
         increases = sorted((m for m in movements if m[1] > 0),
-                           key=lambda m: m[1], reverse=True)
+                           key=lambda m: m[1], reverse=True)[:WordReport._MAX_MOVEMENTS]
 
         def _fmt(svc, delta):
             sign = "-" if delta < 0 else "+"
@@ -539,10 +546,18 @@ class WordReport:
         for inst in stopped:
             name = inst.get("name", "N/A")
             iid = inst.get("instance_id", "")
-            doc.add_paragraph(
-                "%s (%s) has been put to \"Stopped\" state." % (name, iid),
-                style="List Bullet",
-            )
+            stopped_at = inst.get("stopped_at_display") or inst.get("stopped_at")
+            if stopped_at:
+                doc.add_paragraph(
+                    "%s (%s) has been put to \"Stopped\" state from %s."
+                    % (name, iid, stopped_at),
+                    style="List Bullet",
+                )
+            else:
+                doc.add_paragraph(
+                    "%s (%s) has been put to \"Stopped\" state." % (name, iid),
+                    style="List Bullet",
+                )
         if stopped:
             names = ", ".join(
                 "%s (%s)" % (i.get("name", "N/A"), i.get("instance_id", ""))
@@ -781,20 +796,53 @@ class WordReport:
         counts = data.get("severity_counts", {}) or {}
         total = data.get("total_findings")
 
-        critical = int(counts.get("CRITICAL", 0) or 0)
-        high = int(counts.get("HIGH", 0) or 0)
-        medium = int(counts.get("MEDIUM", 0) or 0)
-        low = int(counts.get("LOW", 0) or 0)
-        untriaged = int(counts.get("UNTRIAGED", 0) or 0)
-
-        total_str = ("%d+" % total) if isinstance(total, (int, float)) and total else "many"
-        doc.add_paragraph(
-            "There are %s findings for the last week categorized as follows: "
-            "%d Critical, %d High, %d medium and %d low and %d untriaged."
-            % (total_str, critical, high, medium, low, untriaged)
-        )
+        # Prefer a reference-shaped summary sentence supplied by the data
+        # (so the wording can read "400+ ... 200+ High, 200+ medium" exactly
+        # like the reference) and fall back to deriving it from the numeric
+        # severity_counts the Excel Inspector sheet consumes.
+        summary = data.get("summary_text")
+        if not summary:
+            display = data.get("severity_display") or {}
+            critical = self._severity_display(counts, display, "CRITICAL")
+            high = self._severity_display(counts, display, "HIGH")
+            medium = self._severity_display(counts, display, "MEDIUM")
+            low = self._severity_display(counts, display, "LOW")
+            untriaged = self._severity_display(counts, display, "UNTRIAGED")
+            total_str = self._total_display(data, "total_display", total)
+            summary = (
+                "There are %s findings for the last week categorized as follows: "
+                "%s Critical, %s High, %s medium and %s low and %s untriaged."
+                % (total_str, critical, high, medium, low, untriaged)
+            )
+        doc.add_paragraph(summary)
 
         self._embed_inspector_screenshots(doc, data)
+
+    @staticmethod
+    def _severity_display(counts: Dict[str, Any], display: Dict[str, Any],
+                          key: str) -> str:
+        """Display string for one severity bucket.
+
+        Prefers an explicit per-bucket display string carried in the data's
+        ``severity_display`` map (so the reference's "200+" qualifier is
+        honoured), otherwise renders the raw numeric count from
+        ``severity_counts``."""
+        if isinstance(display, dict) and display.get(key) is not None:
+            return str(display[key])
+        return str(int(counts.get(key, 0) or 0))
+
+    @staticmethod
+    def _total_display(data: Dict[str, Any], display_key: str, total: Any) -> str:
+        """Display string for the grand total of findings.
+
+        Prefers an explicit display string (reference "400+") carried on the
+        data, otherwise falls back to "<n>+" derived from the raw total."""
+        explicit = data.get(display_key)
+        if explicit:
+            return str(explicit)
+        if isinstance(total, (int, float)) and total:
+            return "%d+" % total
+        return "many"
 
     def _embed_inspector_screenshots(self, doc, data: Dict[str, Any]) -> None:
         """Embed Inspector console-style screenshots grouped by severity.
@@ -976,7 +1024,11 @@ class WordReport:
         if value is None:
             return "-"
         if isinstance(value, (int, float)):
-            return format_count(value, precision=2)
+            # Word tables use an uppercase thousands suffix ("952.35K") to
+            # match the reference and stay consistent with the uppercase "M"
+            # that format_count already emits. The shared helper keeps its
+            # lowercase "k" so the Excel path is unchanged.
+            return format_count(value, precision=2).replace("k", "K")
         return str(value)
 
     @staticmethod

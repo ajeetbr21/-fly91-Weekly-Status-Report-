@@ -134,10 +134,30 @@ def main() -> int:
              for p in paras)),
         ("Inspector findings summary",
          "findings for the last week" in all_para),
+        # Exact reference phrasing for the Inspector summary (fidelity): the
+        # grand total reads "400+" (not the raw "464+"), and the High/Medium
+        # buckets carry the reference's "+" qualifier.
+        ("Inspector total reads '400+'", "400+ findings" in all_para),
+        ("Inspector reads '200+ High'", "200+ High" in all_para),
+        ("Inspector reads '200+ medium'", "200+ medium" in all_para),
+        ("Inspector total NOT the raw '464+'", "464+" not in all_para),
         ("Guard Duty subsection heading",
          any("Guard Duty" in p and p.strip().startswith("6") for p in paras)),
         ("GuardDuty findings summary",
          "new findings this week" in all_para),
+
+        # Count formatting fidelity: EC2 packet / ELB / WAF counts render with
+        # an uppercase thousands suffix ("952.35K"), matching the reference and
+        # the uppercase "M" already used, with no lowercase "k" leaking in.
+        ("uppercase K thousands suffix present (952.35K)",
+         "952.35K" in all_cell),
+        ("WAF uppercase K suffix present (88.72K)", "88.72K" in all_cell),
+        ("no lowercase 'k' thousands suffix in tables",
+         "952.35k" not in all_cell and "88.72k" not in all_cell),
+
+        # EC2 stopped-instance bullet carries the reference stop timestamp.
+        ("stopped EC2 bullet includes stop time",
+         "has been put to \"Stopped\" state from" in all_para),
 
         # Trailer.
         ("End of Document trailer", "-- End of Document --" in all_para),

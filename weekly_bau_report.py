@@ -493,6 +493,7 @@ def get_mock_data(start_date: date, end_date: date) -> dict:
                 "instance_id": "i-0d0653d04b9306f42",
                 "instance_type": "r6a.large",
                 "state": "stopped",
+                "stopped_at_display": "30/10/2025 3:25 PM",
                 "availability_zone": "ap-south-1c",
                 "region": "ap-south-1",
                 "cpu_min": None,
@@ -720,6 +721,18 @@ def get_mock_data(start_date: date, end_date: date) -> dict:
                 "UNTRIAGED": 10,
             },
             "total_findings": 464,
+            # Reference-shaped display strings for the Word summary sentence.
+            # The numeric severity_counts above stay intact for the Excel
+            # Inspector sheet; these only drive the Word wording so it reads
+            # exactly like the reference ("400+ ... 200+ High, 200+ medium").
+            "total_display": "400+",
+            "severity_display": {
+                "CRITICAL": "39",
+                "HIGH": "200+",
+                "MEDIUM": "200+",
+                "LOW": "15",
+                "UNTRIAGED": "10",
+            },
             "collection_status": "ok",
             "collection_error": None,
             "findings": [

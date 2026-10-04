@@ -139,6 +139,10 @@ def _build_live_shaped_data():
             "severity_counts": {"CRITICAL": 39, "HIGH": 200, "MEDIUM": 200,
                                 "LOW": 15, "UNTRIAGED": 10},
             "total_findings": 464,
+            "total_display": "400+",
+            "severity_display": {"CRITICAL": "39", "HIGH": "200+",
+                                 "MEDIUM": "200+", "LOW": "15",
+                                 "UNTRIAGED": "10"},
         },
         "guardduty": {
             "date_range": "2026-09-14 to 2026-09-20",
