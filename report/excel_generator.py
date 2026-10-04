@@ -18,6 +18,8 @@ from report.cost_sheet import CostSheet
 from report.ec2_sheet import EC2Sheet
 from report.elb_sheet import ELBSheet
 from report.waf_sheet import WAFSheet
+from report.inspector_sheet import InspectorSheet
+from report.guardduty_sheet import GuardDutySheet
 from report.s3_sheet import S3Sheet
 from report.rds_sheet import RDSSheet
 from report.dashboard_sheet import DashboardSheet
@@ -102,6 +104,8 @@ class ExcelGenerator:
             ("EC2 Instances", self._gen_ec2, {"data": collected_data}),
             ("Load Balancers", self._gen_elb, {"data": collected_data}),
             ("WAF", self._gen_waf, {"data": collected_data}),
+            ("Inspector", self._gen_inspector, {"data": collected_data}),
+            ("GuardDuty", self._gen_guardduty, {"data": collected_data}),
             ("S3 Storage", self._gen_s3, {"data": collected_data}),
             ("RDS Instances", self._gen_rds, {"data": collected_data}),
             ("Dashboard", self._gen_dashboard, {"data": collected_data}),
@@ -146,6 +150,12 @@ class ExcelGenerator:
 
     def _gen_waf(self, wb, data):
         WAFSheet().generate(wb, data.get("waf", []), ReportStyles)
+
+    def _gen_inspector(self, wb, data):
+        InspectorSheet().generate(wb, data.get("inspector", {}), ReportStyles)
+
+    def _gen_guardduty(self, wb, data):
+        GuardDutySheet().generate(wb, data.get("guardduty", {}), ReportStyles)
 
     def _gen_s3(self, wb, data):
         S3Sheet().generate(wb, data.get("s3", []), ReportStyles)

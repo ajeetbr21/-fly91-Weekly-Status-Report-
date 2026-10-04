@@ -55,6 +55,8 @@ from collectors.waf_collector import WAFCollector
 from collectors.s3_collector import S3Collector
 from collectors.rds_collector import RDSCollector
 from collectors.autoscaling_collector import AutoScalingCollector
+from collectors.inspector_collector import InspectorCollector
+from collectors.guardduty_collector import GuardDutyCollector
 from report.excel_generator import ExcelGenerator
 
 
@@ -160,6 +162,8 @@ def collect_all_data(session, config, start_date, end_date, logger) -> dict:
         ('ec2', EC2Collector, "EC2 Instances & Metrics"),
         ('elb', ELBCollector, "Elastic Load Balancers"),
         ('waf', WAFCollector, "AWS WAF"),
+        ('inspector', InspectorCollector, "Amazon Inspector Findings"),
+        ('guardduty', GuardDutyCollector, "Amazon GuardDuty Findings"),
         ('s3', S3Collector, "S3 Buckets"),
         ('rds', RDSCollector, "RDS Instances"),
         ('autoscaling', AutoScalingCollector, "Auto Scaling Groups"),
@@ -522,7 +526,55 @@ def get_mock_data(start_date: date, end_date: date) -> dict:
             {"name": "istari-patching-logs", "region": "us-east-1", "total_size_bytes": 0.0, "total_objects": 0},
             {"name": "textractprogrammerbucket", "region": "us-east-1", "total_size_bytes": 0.0, "total_objects": 0},
         ],
-        "rds": []
+        "rds": [],
+        "inspector": {
+            "date_range": f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+            "severity_counts": {
+                "CRITICAL": 2,
+                "HIGH": 6,
+                "MEDIUM": 7,
+                "LOW": 4,
+                "INFORMATIONAL": 1,
+            },
+            "total_findings": 20,
+            "findings": [
+                {"title": "CVE-2024-3094 - xz-utils backdoor (liblzma)", "severity": "CRITICAL", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Nexus Server (i-09a1b5ff52381b04b)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2024-3094", "first_observed": start_date.strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2021-44228 - Apache Log4j2 RCE (Log4Shell)", "severity": "CRITICAL", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "ISTARI-DB Server (i-0bc7cb7733cccd23b)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2021-44228", "first_observed": start_date.strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2024-6387 - OpenSSH regreSSHion RCE", "severity": "HIGH", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync ClickHouse-Database (i-029867634022c4d78)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2024-6387", "first_observed": (start_date + timedelta(days=1)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2023-4911 - glibc Looney Tunables privilege escalation", "severity": "HIGH", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Nexus Server (i-09a1b5ff52381b04b)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2023-4911", "first_observed": (start_date + timedelta(days=1)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2022-0778 - OpenSSL infinite loop DoS", "severity": "HIGH", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Website Server (i-0a8f07365bce735f6)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2022-0778", "first_observed": (start_date + timedelta(days=2)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2023-38545 - curl SOCKS5 heap buffer overflow", "severity": "HIGH", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Weave-Server (i-05966c44f5be655cc)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2023-38545", "first_observed": (start_date + timedelta(days=2)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2024-1086 - Linux kernel nf_tables use-after-free", "severity": "HIGH", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync-Pipelines Server (i-08b99bf46815a7d38)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2024-1086", "first_observed": (start_date + timedelta(days=3)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2023-44487 - HTTP/2 Rapid Reset DoS", "severity": "HIGH", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Add-in Server (i-07c0fb23505c71dd8)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2023-44487", "first_observed": (start_date + timedelta(days=3)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2023-29491 - ncurses local privilege escalation", "severity": "MEDIUM", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "ISTARI-DB Server (i-0bc7cb7733cccd23b)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2023-29491", "first_observed": (start_date + timedelta(days=1)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2022-37434 - zlib heap buffer over-read", "severity": "MEDIUM", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync ClickHouse-Database (i-029867634022c4d78)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2022-37434", "first_observed": (start_date + timedelta(days=2)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2023-0286 - OpenSSL X.400 type confusion", "severity": "MEDIUM", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Nexus Server (i-09a1b5ff52381b04b)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2023-0286", "first_observed": (start_date + timedelta(days=2)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2023-27536 - curl GSSAPI credential reuse", "severity": "MEDIUM", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Website Server (i-0a8f07365bce735f6)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2023-27536", "first_observed": (start_date + timedelta(days=3)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2022-40674 - expat use-after-free", "severity": "MEDIUM", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Weave-Server (i-05966c44f5be655cc)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2022-40674", "first_observed": (start_date + timedelta(days=4)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2021-3711 - OpenSSL SM2 decryption buffer overflow", "severity": "MEDIUM", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync-Pipelines Server (i-08b99bf46815a7d38)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2021-3711", "first_observed": (start_date + timedelta(days=4)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2022-3602 - OpenSSL X.509 punycode buffer overflow", "severity": "MEDIUM", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "ISTARI-App-Server-ASG (i-06559919372821d45)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2022-3602", "first_observed": (start_date + timedelta(days=5)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2023-2650 - OpenSSL OBJECT IDENTIFIER DoS", "severity": "LOW", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Add-in Server (i-07c0fb23505c71dd8)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2023-2650", "first_observed": (start_date + timedelta(days=5)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2022-1292 - OpenSSL c_rehash command injection", "severity": "LOW", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync ClickHouse-Database (i-029867634022c4d78)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2022-1292", "first_observed": (start_date + timedelta(days=5)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2021-33560 - libgcrypt ElGamal side-channel", "severity": "LOW", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "ISTARI-DB Server (i-0bc7cb7733cccd23b)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2021-33560", "first_observed": (start_date + timedelta(days=6)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "CVE-2020-1971 - OpenSSL EDIPARTYNAME NULL deref", "severity": "LOW", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Nexus Server (i-09a1b5ff52381b04b)", "finding_type": "PACKAGE_VULNERABILITY", "cve": "CVE-2020-1971", "first_observed": (start_date + timedelta(days=6)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+                {"title": "EC2 instance has an outdated SSM Agent", "severity": "INFORMATIONAL", "resource_type": "AWS_EC2_INSTANCE", "resource_id": "InSync Website Server (i-0a8f07365bce735f6)", "finding_type": "SOFTWARE_PACKAGE", "cve": "-", "first_observed": (start_date + timedelta(days=6)).strftime('%Y-%m-%d'), "status": "ACTIVE"},
+            ],
+        },
+        "guardduty": {
+            "date_range": f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+            "severity_counts": {"HIGH": 3, "MEDIUM": 3, "LOW": 2},
+            "total_findings": 8,
+            "findings": [
+                {"title": "Bitcoin-related domain name queried by i-09a1b5ff52381b04b", "type": "CryptoCurrency:EC2/BitcoinTool.B!DNS", "severity_label": "HIGH", "severity_score": 8.0, "resource_type": "Instance", "region": "us-east-1", "count": 12, "first_seen": start_date.strftime('%Y-%m-%d'), "last_seen": (start_date + timedelta(days=2)).strftime('%Y-%m-%d')},
+                {"title": "EC2 instance i-0bc7cb7733cccd23b is the target of SSH brute force attacks", "type": "UnauthorizedAccess:EC2/SSHBruteForce", "severity_label": "HIGH", "severity_score": 7.5, "resource_type": "Instance", "region": "us-east-1", "count": 48, "first_seen": start_date.strftime('%Y-%m-%d'), "last_seen": (start_date + timedelta(days=5)).strftime('%Y-%m-%d')},
+                {"title": "EC2 instance i-029867634022c4d78 is communicating with a known malware command and control server", "type": "Backdoor:EC2/C&CActivity.B!DNS", "severity_label": "HIGH", "severity_score": 7.2, "resource_type": "Instance", "region": "us-east-1", "count": 6, "first_seen": (start_date + timedelta(days=1)).strftime('%Y-%m-%d'), "last_seen": (start_date + timedelta(days=3)).strftime('%Y-%m-%d')},
+                {"title": "Unprotected port on EC2 instance i-07c0fb23505c71dd8 is being probed", "type": "Recon:EC2/PortProbeUnprotectedPort", "severity_label": "MEDIUM", "severity_score": 5.0, "resource_type": "Instance", "region": "us-east-1", "count": 23, "first_seen": (start_date + timedelta(days=1)).strftime('%Y-%m-%d'), "last_seen": (start_date + timedelta(days=4)).strftime('%Y-%m-%d')},
+                {"title": "API GeneratedFindingAPIName was invoked from a Tor exit node", "type": "UnauthorizedAccess:IAMUser/TorIPCaller", "severity_label": "MEDIUM", "severity_score": 5.5, "resource_type": "AccessKey", "region": "us-east-1", "count": 4, "first_seen": (start_date + timedelta(days=2)).strftime('%Y-%m-%d'), "last_seen": (start_date + timedelta(days=4)).strftime('%Y-%m-%d')},
+                {"title": "EC2 instance i-05966c44f5be655cc is performing outbound port scans", "type": "Recon:EC2/Portscan", "severity_label": "MEDIUM", "severity_score": 4.5, "resource_type": "Instance", "region": "us-east-1", "count": 15, "first_seen": (start_date + timedelta(days=3)).strftime('%Y-%m-%d'), "last_seen": (start_date + timedelta(days=5)).strftime('%Y-%m-%d')},
+                {"title": "Login to the console from an unusual geolocation", "type": "UnauthorizedAccess:IAMUser/ConsoleLoginSuccess.B", "severity_label": "LOW", "severity_score": 3.0, "resource_type": "AccessKey", "region": "us-east-1", "count": 2, "first_seen": (start_date + timedelta(days=4)).strftime('%Y-%m-%d'), "last_seen": (start_date + timedelta(days=5)).strftime('%Y-%m-%d')},
+                {"title": "EC2 instance i-08b99bf46815a7d38 is querying a low-reputation domain", "type": "Recon:EC2/PortProbeEMRUnprotectedPort", "severity_label": "LOW", "severity_score": 2.0, "resource_type": "Instance", "region": "us-east-1", "count": 9, "first_seen": (start_date + timedelta(days=5)).strftime('%Y-%m-%d'), "last_seen": (start_date + timedelta(days=6)).strftime('%Y-%m-%d')},
+            ],
+        },
     }
 
 

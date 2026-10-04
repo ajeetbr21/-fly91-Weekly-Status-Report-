@@ -27,6 +27,8 @@ from .waf_collector import WAFCollector
 from .s3_collector import S3Collector
 from .rds_collector import RDSCollector
 from .autoscaling_collector import AutoScalingCollector
+from .inspector_collector import InspectorCollector
+from .guardduty_collector import GuardDutyCollector
 
 __all__ = [
     "BaseCollector",
@@ -37,4 +39,6 @@ __all__ = [
     "S3Collector",
     "RDSCollector",
     "AutoScalingCollector",
+    "InspectorCollector",
+    "GuardDutyCollector",
 ]
