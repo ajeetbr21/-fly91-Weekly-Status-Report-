@@ -11,7 +11,17 @@
         "submitter_org": "Greatworx",
         "activity_org": "Greatworx",
         "disclaimer_org": "Greatworx",
-        "word_output_filename": "Weekly_Status_Report.docx"
+        "word_output_filename": "Weekly_Status_Report.docx",
+        "assets": {
+            "logo": "assets/logo.png",
+            "cover_background": "assets/cover_background.png",
+            "cost_overview": "assets/screenshots_cost_overview.png",
+            "inspector_critical": "assets/screenshots_inspector_critical.png",
+            "inspector_high": "assets/screenshots_inspector_high.png",
+            "inspector_medium": "assets/screenshots_inspector_medium.png",
+            "inspector_low": "assets/screenshots_inspector_low.png",
+            "guardduty": "assets/screenshots_guardduty.png"
+        }
     },
     "regions": ["us-east-1"],
     "thresholds": {

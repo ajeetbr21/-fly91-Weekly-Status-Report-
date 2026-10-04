@@ -42,14 +42,22 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 try:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Inches, Pt
+    from docx.enum.table import WD_ALIGN_VERTICAL
+    from docx.shared import Inches, Pt, RGBColor, Emu
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
     _DOCX_AVAILABLE = True
     _DOCX_IMPORT_ERROR = None
 except ImportError as exc:  # pragma: no cover - exercised only without python-docx
     Document = None
     WD_ALIGN_PARAGRAPH = None
+    WD_ALIGN_VERTICAL = None
     Inches = None
     Pt = None
+    RGBColor = None
+    Emu = None
+    OxmlElement = None
+    qn = None
     _DOCX_AVAILABLE = False
     _DOCX_IMPORT_ERROR = exc
 
@@ -118,6 +126,26 @@ class WordReport:
     _ACCOUNT_NAME = "JUST UDO AVIATION PRIVATE LIMITED (Fly91)/ Greatworx"
     _ACCOUNT_ID = "674351849978"
 
+    # Default logical-name -> path mapping for the configurable asset images.
+    # Any entry whose file does not exist on disk is skipped gracefully.
+    DEFAULT_ASSETS = {
+        "logo": "assets/logo.png",
+        "cover_background": "assets/cover_background.png",
+        "cost_overview": "assets/screenshots_cost_overview.png",
+        "inspector_critical": "assets/screenshots_inspector_critical.png",
+        "inspector_high": "assets/screenshots_inspector_high.png",
+        "inspector_medium": "assets/screenshots_inspector_medium.png",
+        "inspector_low": "assets/screenshots_inspector_low.png",
+        "guardduty": "assets/screenshots_guardduty.png",
+    }
+
+    # Professional blue used for the cover accent bar.
+    _ACCENT_BLUE = "1F4E79"
+
+    # Repo root (two levels up from report/word_report.py) used to resolve
+    # relative asset paths regardless of the process working directory.
+    _REPO_ROOT = Path(__file__).resolve().parent.parent
+
     def __init__(self, config: Optional[Dict[str, Any]] = None,
                  start_date: Optional[date] = None,
                  end_date: Optional[date] = None):
@@ -132,8 +160,41 @@ class WordReport:
         if not config.get("word_report", {}).get("activity_org"):
             word_cfg["activity_org"] = word_cfg["submitter_org"]
         self.word_cfg = word_cfg
+        # Configurable asset image mapping (logical name -> path). Starts from
+        # the defaults and is overridden by config['word_report']['assets'] so
+        # a client can swap in their own logo / screenshots with no code change.
+        assets = dict(self.DEFAULT_ASSETS)
+        cfg_assets = (config.get("word_report", {}) or {}).get("assets", {}) or {}
+        if isinstance(cfg_assets, dict):
+            assets.update({k: v for k, v in cfg_assets.items() if v})
+        self.assets = assets
         self.start_date = start_date
         self.end_date = end_date
+
+    # ------------------------------------------------------------------
+    # Asset resolution
+    # ------------------------------------------------------------------
+
+    def _asset_path(self, name: str) -> Optional[str]:
+        """Resolve a configured asset to an on-disk path, or None.
+
+        Returns the absolute path to the mapped asset if (and only if) the file
+        actually exists, so a missing asset degrades gracefully (the caller
+        simply skips the image) instead of crashing the report. Relative paths
+        are resolved against the repo root.
+        """
+        rel = self.assets.get(name)
+        if not rel:
+            return None
+        try:
+            candidate = Path(rel)
+            if not candidate.is_absolute():
+                candidate = self._REPO_ROOT / candidate
+            if candidate.is_file():
+                return str(candidate)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to resolve asset '%s' (%s): %s", name, rel, exc)
+        return None
 
     # ------------------------------------------------------------------
     # Public API
@@ -162,6 +223,9 @@ class WordReport:
 
         logger.info("Creating Word document ...")
         doc = Document()
+
+        self._apply_page_setup(doc)
+        self._apply_default_font(doc)
 
         doc.core_properties.title = self.word_cfg["report_title"]
         doc.core_properties.author = self.word_cfg["submitter_org"]
@@ -223,15 +287,105 @@ class WordReport:
         return 7
 
     # ------------------------------------------------------------------
-    # Section 0: minimal cover/title
+    # Page setup / default font
+    # ------------------------------------------------------------------
+
+    # Chosen reference-aligned margins (inches). The reference first-section
+    # pgMar (twips) is top=1340 right=0 bottom=1160 left=360 header=0 footer=970.
+    # We keep sane non-zero margins close to those while keeping the 6-column
+    # cost table inside US Letter's printable width:
+    #   left  = 0.25in  (~360 twips, matches reference left)
+    #   right = 0.3in   (reference uses 0; keep a small gutter so text is not
+    #                    clipped by printers)
+    #   top   = 0.9in   (~1296 twips, close to reference top=1340)
+    #   bottom= 0.8in   (~1152 twips, close to reference bottom=1160)
+    _MARGIN_LEFT_IN = 0.25
+    _MARGIN_RIGHT_IN = 0.3
+    _MARGIN_TOP_IN = 0.9
+    _MARGIN_BOTTOM_IN = 0.8
+
+    def _apply_page_setup(self, doc) -> None:
+        """Set page size to US Letter (12240x15840 twips) and tighten margins
+        toward the reference section. Wrapped so a failure degrades gracefully.
+        """
+        try:
+            section = doc.sections[0]
+            section.page_width = Inches(8.5)   # 12240 twips
+            section.page_height = Inches(11)   # 15840 twips
+            section.left_margin = Inches(self._MARGIN_LEFT_IN)
+            section.right_margin = Inches(self._MARGIN_RIGHT_IN)
+            section.top_margin = Inches(self._MARGIN_TOP_IN)
+            section.bottom_margin = Inches(self._MARGIN_BOTTOM_IN)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to apply page setup: %s", exc)
+
+    def _apply_default_font(self, doc) -> None:
+        """Set a modest default body font/size approximating the reference."""
+        try:
+            normal = doc.styles["Normal"]
+            normal.font.name = "Calibri"
+            normal.font.size = Pt(10)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to apply default font: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Section 0: professional cover page
     # ------------------------------------------------------------------
 
     def _build_cover(self, doc) -> None:
+        # (d) Optional full-page background photo behind the content. python-docx
+        # has no true full-bleed API; we anchor a behindDoc floating drawing
+        # sized to the page. If the asset is absent (the default - the reference
+        # set ships NO cityscape) we render the cover without a photo.
+        bg_path = self._asset_path("cover_background")
+        if bg_path:
+            try:
+                self._add_full_page_background(doc, bg_path)
+            except Exception as exc:
+                logger.warning("Failed to add cover background: %s", exc)
+
+        # (a) + (b): a top row with a blue left accent bar and the logo top-right.
+        # Use a 1-row, 2-col borderless table: col0 = thin shaded blue bar,
+        # col1 = right-aligned logo.
+        try:
+            header_tbl = doc.add_table(rows=1, cols=2)
+            header_tbl.autofit = False
+            bar_cell = header_tbl.rows[0].cells[0]
+            logo_cell = header_tbl.rows[0].cells[1]
+            # Thin blue accent bar.
+            try:
+                bar_cell.width = Inches(0.25)
+                logo_cell.width = Inches(7.4)
+            except Exception:
+                pass
+            self._shade_cell(bar_cell, self._ACCENT_BLUE)
+            self._set_cell_vertical_bar_height(bar_cell)
+
+            logo_para = logo_cell.paragraphs[0]
+            logo_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            logo_path = self._asset_path("logo")
+            if logo_path:
+                try:
+                    run = logo_para.add_run()
+                    run.add_picture(logo_path, width=Inches(1.8))
+                except Exception as exc:
+                    logger.warning("Failed to embed cover logo: %s", exc)
+        except Exception as exc:
+            logger.warning("Failed to build cover header: %s", exc)
+
+        # (c) Title block.
+        for _ in range(4):
+            doc.add_paragraph()
+
         title = doc.add_paragraph()
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = title.add_run(self.word_cfg["report_title"])
         run.bold = True
-        run.font.size = Pt(26)
+        run.font.size = Pt(32)
+        try:
+            run.font.color.rgb = RGBColor(0x1F, 0x4E, 0x79)
+        except Exception:
+            pass
 
         org = doc.add_paragraph()
         org.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -248,6 +402,70 @@ class WordReport:
         period_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         period_run = period_p.add_run("Reporting Period: %s" % self._current_range_str())
         period_run.italic = True
+
+        # Cover ends with a page break so Cost Summary starts on page 2.
+        doc.add_page_break()
+
+    def _add_full_page_background(self, doc, image_path: str) -> None:
+        """Place *image_path* as a behind-text floating drawing sized to the
+        full page. python-docx limitation: this is NOT a true full-bleed
+        print background; it is an anchored wp:anchor drawing with behindDoc=1
+        sized to the Letter page. Documented in the README.
+        """
+        # First embed the picture inline (so the image part + relationship are
+        # created), then convert that inline drawing into a behindDoc anchor.
+        para = doc.add_paragraph()
+        run = para.add_run()
+        pic = run.add_picture(image_path, width=Inches(8.5), height=Inches(11))
+        inline = run._r.find(qn("w:drawing"))[0]  # wp:inline
+        # Build a wp:anchor element reusing the inline's extent/graphic.
+        anchor = OxmlElement("wp:anchor")
+        for attr, val in (
+            ("behindDoc", "1"), ("distT", "0"), ("distB", "0"),
+            ("distL", "0"), ("distR", "0"), ("simplePos", "0"),
+            ("locked", "0"), ("layoutInCell", "1"), ("allowOverlap", "1"),
+            ("relativeHeight", "0"),
+        ):
+            anchor.set(attr, val)
+
+        simple_pos = OxmlElement("wp:simplePos")
+        simple_pos.set("x", "0")
+        simple_pos.set("y", "0")
+        anchor.append(simple_pos)
+
+        pos_h = OxmlElement("wp:positionH")
+        pos_h.set("relativeFrom", "page")
+        align_h = OxmlElement("wp:align")
+        align_h.text = "center"
+        pos_h.append(align_h)
+        anchor.append(pos_h)
+
+        pos_v = OxmlElement("wp:positionV")
+        pos_v.set("relativeFrom", "page")
+        align_v = OxmlElement("wp:align")
+        align_v.text = "center"
+        pos_v.append(align_v)
+        anchor.append(pos_v)
+
+        # Reuse extent / docPr / graphic from the inline drawing.
+        for tag in ("wp:extent", "wp:effectExtent", "wp:docPr",
+                    "a:graphic"):
+            child = inline.find(qn(tag))
+            if child is not None:
+                anchor.append(child)
+
+        # wrapNone so it sits behind the text.
+        wrap_none = OxmlElement("wp:wrapNone")
+        # Insert wrapNone before docPr per schema order (after effectExtent).
+        docpr = anchor.find(qn("wp:docPr"))
+        if docpr is not None:
+            docpr.addprevious(wrap_none)
+        else:
+            anchor.append(wrap_none)
+
+        drawing = run._r.find(qn("w:drawing"))
+        drawing.remove(inline)
+        drawing.append(anchor)
 
     # ------------------------------------------------------------------
     # Section 1: Cost Summary Differences
@@ -282,46 +500,63 @@ class WordReport:
         return rows
 
     def _build_cost_summary_differences(self, doc, cost: Optional[Dict[str, Any]]) -> None:
-        doc.add_heading("Cost Summary Differences", level=1)
+        # Centered + underlined title (matches the reference screenshot).
+        title_p = doc.add_paragraph()
+        title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title_run = title_p.add_run("Cost Summary Differences")
+        title_run.bold = True
+        title_run.underline = True
+        title_run.font.size = Pt(16)
+
         cost = cost or {}
 
         prev_range = self._previous_range_str()
         curr_range = self._current_range_str()
 
-        headers = [
-            "No",
-            "Account Name",
-            "Account ID",
-            "Services",
-            "Last Week (%s)" % prev_range,
-            "Current Week (%s)" % curr_range,
-        ]
-        table = doc.add_table(rows=1, cols=len(headers))
+        table = doc.add_table(rows=1, cols=6)
         table.style = "Table Grid"
-        self._set_header_row(table.rows[0], headers)
+
+        # Build the header row with rich (multi-line / bold) cells.
+        hdr = table.rows[0].cells
+        self._stacked_no_header(hdr[0])
+        self._simple_bold_header(hdr[1], "Account Name")
+        self._simple_bold_header(hdr[2], "Account ID")
+        self._simple_bold_header(hdr[3], "Services")
+        self._two_line_bold_header(hdr[4], "Last Week", prev_range)
+        self._two_line_bold_header(hdr[5], "Current Week", curr_range)
 
         rows = self._per_service_rows(cost)
 
-        # Identity + first service in a single first body row so the account
-        # name/id read as the reference's "1 | <account> | <id>" header line.
-        first = True
+        # Build one row per service first; put the account-identity values only
+        # in the FIRST service row, then vertically merge cols 0..2 down the
+        # whole service list so the identity reads as one tall cell.
+        service_cell_rows = []
         for row in rows:
             svc = str(row.get("service", ""))
             last = row.get("last_week")
             curr = row.get("current_week")
             cells = table.add_row().cells
-            if first:
-                cells[0].text = "1"
-                cells[1].text = self._account_name()
-                cells[2].text = self._account_id()
-                first = False
-            else:
-                cells[0].text = ""
-                cells[1].text = ""
-                cells[2].text = ""
             cells[3].text = svc
             cells[4].text = self._cost_cell(last)
             cells[5].text = self._cost_cell(curr)
+            self._center_cell(cells[4])
+            self._center_cell(cells[5])
+            service_cell_rows.append(cells)
+
+        if service_cell_rows:
+            first_cells = service_cell_rows[0]
+            first_cells[0].text = "1"
+            first_cells[1].text = self._account_name()
+            first_cells[2].text = self._account_id()
+            # Vertical merge of the No / Account Name / Account ID columns.
+            try:
+                last_cells = service_cell_rows[-1]
+                for col in (0, 1, 2):
+                    if len(service_cell_rows) > 1:
+                        first_cells[col].merge(last_cells[col])
+                    self._center_cell(first_cells[col])
+            except Exception as exc:
+                logger.warning("Failed to vertically merge identity cells: %s", exc)
 
         # Total Cost row.
         total_last_label = cost.get("total_last_week_label")
@@ -329,21 +564,92 @@ class WordReport:
         total_last = cost.get("total_last_week", cost.get("previous_week_total"))
         total_curr = cost.get("total_current_week", cost.get("current_week_total"))
         if not total_last_label:
-            total_last_label = "%s Tax Excluded Cost" % format_currency(total_last)
+            total_last_label = "(%s Tax Excluded Cost)" % format_currency(total_last)
         if not total_curr_label:
-            total_curr_label = "%s Tax Excluded Cost" % format_currency(total_curr)
+            total_curr_label = "(%s Tax Excluded Cost)" % format_currency(total_curr)
 
         total_cells = table.add_row().cells
-        total_cells[0].text = ""
-        total_cells[1].text = ""
-        total_cells[2].text = ""
-        total_cells[3].text = "Total Cost"
+        # Merge the leading columns (No..Services -> indices 0..3) into one cell.
+        try:
+            lead = total_cells[0]
+            for idx in (1, 2, 3):
+                lead = lead.merge(total_cells[idx])
+            lead.text = "Total Cost"
+            self._bold_cell(lead)
+            self._center_cell(lead)
+        except Exception as exc:
+            logger.warning("Failed to merge Total Cost leading cells: %s", exc)
+            total_cells[3].text = "Total Cost"
+            self._bold_cell(total_cells[3])
+
         total_cells[4].text = str(total_last_label)
         total_cells[5].text = str(total_curr_label)
-        for idx in (3, 4, 5):
+        for idx in (4, 5):
             self._bold_cell(total_cells[idx])
+            self._center_cell(total_cells[idx])
 
         self._cost_analysis_bullets(doc, cost, total_last, total_curr, rows)
+
+        # Optional Cost Explorer overview capture (configurable asset). Embedded
+        # only if the asset exists on disk; skipped gracefully otherwise.
+        overview = self._asset_path("cost_overview")
+        if overview:
+            try:
+                doc.add_picture(overview, width=Inches(6))
+                cap = doc.add_paragraph()
+                cap_run = cap.add_run(
+                    "Cost Explorer overview - %s" % self._current_range_str())
+                cap_run.italic = True
+                cap_run.font.size = Pt(8)
+            except Exception as exc:
+                logger.warning("Failed to embed cost overview asset: %s", exc)
+
+    # ---- Cost-table header cell builders -----------------------------
+
+    @staticmethod
+    def _simple_bold_header(cell, text: str) -> None:
+        cell.text = ""
+        para = cell.paragraphs[0]
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = para.add_run(text)
+        run.bold = True
+        try:
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        except Exception:
+            pass
+
+    @staticmethod
+    def _stacked_no_header(cell) -> None:
+        """Render the 'No' header stacked as 'N' over 'o' (a line break)."""
+        cell.text = ""
+        para = cell.paragraphs[0]
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = para.add_run("N")
+        run.bold = True
+        run.add_break()
+        run2 = para.add_run("o")
+        run2.bold = True
+        try:
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        except Exception:
+            pass
+
+    @staticmethod
+    def _two_line_bold_header(cell, line1: str, line2: str) -> None:
+        """Bold header with the label on line 1 and the date range on line 2."""
+        cell.text = ""
+        para = cell.paragraphs[0]
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = para.add_run(line1)
+        run.bold = True
+        run.add_break()
+        run2 = para.add_run("(%s)" % line2)
+        run2.bold = True
+        run2.font.size = Pt(9)
+        try:
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        except Exception:
+            pass
 
     def _cost_analysis_bullets(self, doc, cost: Dict[str, Any],
                                total_last: Any, total_curr: Any,
@@ -856,6 +1162,34 @@ class WordReport:
 
         groups = [("CRITICAL", "Critical"), ("HIGH", "High"),
                   ("MEDIUM", "Medium"), ("LOW", "Low")]
+
+        # Prefer the configured console-capture asset images (real screenshots)
+        # when present, so the report looks like the original reference. Falls
+        # back to the runtime Pillow renderer below if no asset is configured.
+        asset_map = {
+            "CRITICAL": "inspector_critical",
+            "HIGH": "inspector_high",
+            "MEDIUM": "inspector_medium",
+            "LOW": "inspector_low",
+        }
+        asset_embedded = 0
+        for sev_key, sev_label in groups:
+            asset_path = self._asset_path(asset_map[sev_key])
+            if not asset_path:
+                continue
+            try:
+                doc.add_picture(asset_path, width=Inches(6))
+                cap = doc.add_paragraph()
+                cap_run = cap.add_run("%s Findings" % sev_label)
+                cap_run.italic = True
+                cap_run.font.size = Pt(8)
+                asset_embedded += 1
+            except Exception as exc:
+                logger.warning("Failed to embed Inspector asset '%s': %s",
+                               asset_path, exc)
+        if asset_embedded:
+            return
+
         embedded = 0
         if findings:
             for sev_key, sev_label in groups:
@@ -923,6 +1257,18 @@ class WordReport:
             "%d Medium and %d High as displayed in the console."
             % (total_str, low, medium, high)
         )
+
+        # Prefer the configured GuardDuty console-capture asset image when
+        # present (looks like the original reference); otherwise fall back to
+        # the runtime Pillow renderer.
+        gd_asset = self._asset_path("guardduty")
+        if gd_asset:
+            try:
+                doc.add_picture(gd_asset, width=Inches(6))
+                return
+            except Exception as exc:
+                logger.warning("Failed to embed GuardDuty asset '%s': %s",
+                               gd_asset, exc)
 
         findings = data.get("findings") or []
         date_range = data.get("date_range", "")
@@ -1060,3 +1406,39 @@ class WordReport:
                 paragraph.add_run("")
             for run in paragraph.runs:
                 run.bold = True
+
+    @staticmethod
+    def _center_cell(cell) -> None:
+        """Center all paragraphs in a cell horizontally and vertically."""
+        try:
+            for paragraph in cell.paragraphs:
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to center cell: %s", exc)
+
+    @staticmethod
+    def _shade_cell(cell, hex_color: str) -> None:
+        """Apply a solid background fill to a table cell via w:shd."""
+        try:
+            tc_pr = cell._tc.get_or_add_tcPr()
+            shd = OxmlElement("w:shd")
+            shd.set(qn("w:val"), "clear")
+            shd.set(qn("w:color"), "auto")
+            shd.set(qn("w:fill"), hex_color)
+            tc_pr.append(shd)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to shade cell: %s", exc)
+
+    @staticmethod
+    def _set_cell_vertical_bar_height(cell) -> None:
+        """Give the accent-bar cell a tall minimum height so the blue column
+        reads as a full-height vertical bar on the cover."""
+        try:
+            tc_pr = cell._tc.get_or_add_tcPr()
+            # Remove any text so only the fill shows; keep an empty paragraph.
+            for paragraph in cell.paragraphs:
+                for run in list(paragraph.runs):
+                    run.text = ""
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to set accent bar: %s", exc)
