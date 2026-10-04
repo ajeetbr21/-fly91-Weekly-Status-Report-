@@ -285,6 +285,8 @@ def get_mock_data(start_date: date, end_date: date) -> dict:
                 {"service": "Elastic Load Balancing", "cost": 120.40},
                 {"service": "AWS WAF", "cost": 85.10},
                 {"service": "Amazon CloudWatch", "cost": 30.00},
+                {"service": "Amazon Inspector", "cost": 18.40},
+                {"service": "Amazon GuardDuty", "cost": 12.75},
             ],
             "service_breakdown": [
                 {"service": "Amazon Elastic Compute Cloud - Compute", "cost": 1850.20, "pct_change": -2.5, "difference": -47.40},
@@ -293,6 +295,8 @@ def get_mock_data(start_date: date, end_date: date) -> dict:
                 {"service": "Elastic Load Balancing", "cost": 120.40, "pct_change": -0.8, "difference": -1.00},
                 {"service": "AWS WAF", "cost": 85.10, "pct_change": 12.0, "difference": 9.10},
                 {"service": "Amazon CloudWatch", "cost": 30.00, "pct_change": 0.0, "difference": 0.00},
+                {"service": "Amazon Inspector", "cost": 18.40, "pct_change": 3.4, "difference": 0.60},
+                {"service": "Amazon GuardDuty", "cost": 12.75, "pct_change": 2.0, "difference": 0.25},
             ]
         },
         "ec2": [

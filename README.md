@@ -20,6 +20,8 @@ A production-ready Python application that runs on **AWS CloudShell** to automat
 - **AWS WAF** — Web ACL request metrics (allowed, blocked, CAPTCHA, challenge)
 - **Amazon S3** — Bucket sizes, object counts across all buckets
 - **Amazon RDS** — Database CPU, storage, connections (if applicable)
+- **Amazon Inspector** — Vulnerability findings for the reporting week, grouped by severity (Critical / High / Medium / Low / Informational)
+- **Amazon GuardDuty** — Threat-detection findings for the reporting week, grouped by severity (High / Medium / Low)
 - **Auto Scaling** — Group configurations and instance health
 
 ### Excel Report
@@ -29,9 +31,27 @@ A production-ready Python application that runs on **AWS CloudShell** to automat
 - **EC2 Dashboard** — Server utilization and network bandwidth tables
 - **Load Balancer Dashboard** — ALB metrics and performance data
 - **WAF Dashboard** — Security request metrics
+- **Inspector Dashboard** — Severity summary + detailed one-week findings table, plus a console-screenshot-style visual (see below)
+- **GuardDuty Dashboard** — Severity summary + detailed one-week findings table, plus a console-screenshot-style visual (see below)
 - **S3 Dashboard** — Storage distribution across buckets
 - **RDS Dashboard** — Database performance (or "No RDS instances available")
 - **Charts Dashboard** — 8 professional charts (cost trends, CPU, memory, network, etc.)
+
+> The **Cost Summary** now also lists **Amazon Inspector** and **Amazon GuardDuty** as line items in the top-services and service-breakdown tables.
+
+### Screenshot-style visuals
+
+The Inspector and GuardDuty sheets each embed a **console-screenshot-style image**
+of the one-week findings, mimicking the "Findings" view captured from the AWS
+console. The image is rendered on the fly with [Pillow](https://pillow.readthedocs.io/)
+(`report/screenshots.py`): a dark-blue title bar, column headers, zebra-striped
+rows, and colour-coded severity chips (**High = red, Medium = orange, Low = blue**).
+
+The visuals are generated **in memory** (via `BytesIO`) and embedded directly
+into the workbook, so no PNG files are written to disk or committed. If Pillow is
+not installed, or image rendering fails for any reason, the report **degrades
+gracefully**: a warning is logged and the sheet is produced without the embedded
+image (the tables are unaffected).
 
 ### Formatting
 - Dark blue title bars with white text
@@ -77,10 +97,12 @@ A production-ready Python application that runs on **AWS CloudShell** to automat
 cd aws-weekly-bau-report
 
 # 3. Install dependencies
-pip3 install openpyxl --user
+pip3 install -r requirements.txt --user
 ```
 
 > **Note:** `boto3` and `botocore` are pre-installed on AWS CloudShell.
+> `Pillow` is used for the Inspector/GuardDuty screenshot-style visuals; if it
+> cannot be installed, the report still generates (the images are skipped).
 
 ---
 
@@ -193,6 +215,9 @@ aws-weekly-bau-report/
 │   ├── ec2_sheet.py              # EC2 dashboard
 │   ├── elb_sheet.py              # ELB dashboard
 │   ├── waf_sheet.py              # WAF dashboard
+│   ├── inspector_sheet.py        # Amazon Inspector dashboard (+ screenshot)
+│   ├── guardduty_sheet.py        # Amazon GuardDuty dashboard (+ screenshot)
+│   ├── screenshots.py            # Pillow helper for console-style PNG visuals
 │   ├── s3_sheet.py               # S3 dashboard
 │   ├── rds_sheet.py              # RDS dashboard
 │   └── dashboard_sheet.py        # Charts dashboard
@@ -243,6 +268,30 @@ sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-config-wizard
 sudo systemctl start amazon-cloudwatch-agent
 sudo systemctl enable amazon-cloudwatch-agent
 ```
+
+---
+
+## Reference / Assumptions
+
+This report's layout targets the structure of the reference Google Doc
+("fly91-Weekly-Status-Report- 14th September - 20th September"): a service-wise
+**Cost Summary** that includes Amazon Inspector and Amazon GuardDuty, EC2 Server
+Utilization, WAF request metrics, and the **Amazon Inspector one-week Findings**
+captured as console screenshots (with High / Medium / Low severity), plus the
+GuardDuty findings.
+
+**Important:** the reference Google Doc itself was **not machine-accessible**
+during implementation — it requires Google sign-in, so only its title was
+visible. The structure above therefore follows the description relayed with the
+task, **not** the live document. As a result, some exact wording, column
+ordering, and numeric values (including the Inspector ~$18.40 and GuardDuty
+~$12.75 weekly costs, and the sample findings) are **assumptions** and should be
+confirmed against the original document. Please review and let us know what, if
+anything, is still missing or should be adjusted.
+
+All AWS data shown when running with `--mock` is representative sample data; run
+without `--mock` (with valid AWS credentials) to populate the report from the
+live account.
 
 ---
 

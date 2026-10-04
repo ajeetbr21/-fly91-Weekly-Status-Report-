@@ -2,6 +2,11 @@
 Weekly_AWS_BAU_Report.xlsx
 *.xlsx
 
+# Generated screenshot-style visuals (Inspector / GuardDuty console images)
+*.png
+assets_tmp/
+build/
+
 # Logs
 bau_report.log
 *.log

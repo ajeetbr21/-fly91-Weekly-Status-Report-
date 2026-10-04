@@ -10,6 +10,10 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from report.styles import ReportStyles
+from report import screenshots
+from utils.logger import get_logger
+
+logger = get_logger("bau_report")
 
 
 class GuardDutySheet:
@@ -138,11 +142,60 @@ class GuardDutySheet:
         styles.auto_fit_columns(ws, min_width=12)
         styles.freeze_and_filter(ws, detail_header_row)
 
+        # ── Screenshot-style console visual (one-week findings) ────────
+        row += 1
+        self._embed_findings_screenshot(ws, row, findings, date_range, styles)
+
         return ws
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _embed_findings_screenshot(self, ws, row, findings, date_range, styles):
+        """
+        Render and embed a console-screenshot-style PNG of the GuardDuty
+        one-week findings (High / Medium / Low severity).
+
+        Any failure (missing Pillow, drawing error, embed error) is logged
+        and swallowed so it never aborts the sheet.
+        """
+        try:
+            total_cols = len(self.DETAIL_HEADERS)
+            styles.apply_section_header(
+                ws, row, "GuardDuty Console - Findings (Screenshot)", total_cols
+            )
+            anchor_row = row + 1
+
+            headers = ["Severity", "Finding Type", "Title", "Resource", "Count"]
+            img_rows = []
+            for finding in findings:
+                img_rows.append([
+                    (finding.get("severity_label", "-") or "-").upper(),
+                    finding.get("type", "-"),
+                    finding.get("title", "-"),
+                    finding.get("resource_type", "-"),
+                    finding.get("count", "-"),
+                ])
+
+            title = "Amazon GuardDuty - Findings (One Week)"
+            if date_range and date_range != "N/A":
+                title = f"{title}  |  {date_range}"
+
+            png = screenshots.render_findings_table(
+                title, headers, img_rows, severity_col=0
+            )
+            if png is None:
+                return
+
+            from openpyxl.drawing.image import Image as XLImage
+
+            img = XLImage(png)
+            ws.add_image(img, f"A{anchor_row}")
+        except Exception as exc:
+            logger.warning(
+                "Could not embed GuardDuty findings screenshot: %s", exc
+            )
 
     @staticmethod
     def _apply_severity_fill(severity, *cells):
