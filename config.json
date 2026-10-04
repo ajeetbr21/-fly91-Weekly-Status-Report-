@@ -1,0 +1,30 @@
+{
+    "client_name": "JUST UDO AVIATION PRIVATE LIMITED (Fly91)",
+    "aws_account_id": "674351849978",
+    "prepared_by": "Cloud Operations Team",
+    "report_title": "Weekly AWS Infrastructure BAU Matrix Report",
+    "output_filename": "Weekly_AWS_BAU_Report.xlsx",
+    "word_report": {
+        "report_title": "Weekly Status Report",
+        "client_org": "JUST UDO AVIATION PRIVATE LIMITED (Fly91)",
+        "submitted_by_label": "Submitted By",
+        "submitter_org": "Greatworx",
+        "activity_org": "Greatworx",
+        "word_output_filename": "Weekly_Status_Report.docx"
+    },
+    "regions": ["us-east-1"],
+    "thresholds": {
+        "cpu_warning": 70,
+        "cpu_critical": 90,
+        "memory_warning": 75,
+        "memory_critical": 90,
+        "disk_warning": 75,
+        "disk_critical": 90,
+        "cost_increase_warning": 10,
+        "cost_increase_critical": 25
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "bau_report.log"
+    }
+}
