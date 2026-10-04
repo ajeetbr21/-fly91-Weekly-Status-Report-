@@ -154,16 +154,17 @@ Notes:
   otherwise unchanged.
 - The cover-page report date is the submission date, computed as the period end
   date **+ 3 days** (e.g. a 14-20 Sep 2026 week shows `23/09/2026`).
-- The Word report contains, in order: a cover page, a "Cost Summary Difference
-  of All AWS Accounts" master table (ending in a Total Cost row with up/down
-  indicators), a "security best practices" link table, per-account Summary
-  sections (Billing & Cost Overview plus optional Resource Utilization & Alarms
-  tables), and an "-- End Of Document --" trailer. Cost date ranges and alarm
-  dates are populated for whatever week you pass via `--start-date`/`--end-date`.
-- Mock mode (`--mock`) synthesises a representative multi-account dataset so the
-  Word report is complete without AWS access. In live mode the single configured
-  account is populated from the real collected cost/EC2 data; see the "Word
-  report (multi-account mapping)" note below.
+- The Word report is scoped to a **single account** (JUST UDO AVIATION PRIVATE
+  LIMITED (Fly91), account `674351849978`, prepared by Greatworx). It contains,
+  in order: a cover page, a "security best practices" link table, a per-account
+  Summary section (Billing & Cost Overview plus optional Resource Utilization &
+  Alarms table), and an "-- End Of Document --" trailer. It does **not** include
+  the multi-account "Cost Summary Difference of All AWS Accounts" fleet table.
+  Cost date ranges and alarm dates are populated for whatever week you pass via
+  `--start-date`/`--end-date`.
+- Mock mode (`--mock`) synthesises a representative single-account dataset so the
+  Word report is complete without AWS access. In live mode the configured
+  account is populated from the real collected cost/EC2 data.
 
 You can verify a generated Word report with the bundled checker:
 
@@ -200,17 +201,17 @@ Edit `config.json` to customize the report:
 
 ```json
 {
-    "client_name": "Insync Analytics",
-    "aws_account_id": "179787470151",
+    "client_name": "JUST UDO AVIATION PRIVATE LIMITED (Fly91)",
+    "aws_account_id": "674351849978",
     "prepared_by": "Cloud Operations Team",
     "report_title": "Weekly AWS Infrastructure BAU Matrix Report",
     "output_filename": "Weekly_AWS_BAU_Report.xlsx",
     "word_report": {
         "report_title": "Weekly Status Report",
-        "client_org": "Aptech Limited",
+        "client_org": "JUST UDO AVIATION PRIVATE LIMITED (Fly91)",
         "submitted_by_label": "Submitted By",
-        "submitter_org": "Operisoft Technologies Pvt Ltd",
-        "activity_org": "Operisoft",
+        "submitter_org": "Greatworx",
+        "activity_org": "Greatworx",
         "word_output_filename": "Weekly_Status_Report.docx"
     },
     "regions": ["us-east-1"],

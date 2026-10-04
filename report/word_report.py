@@ -1,24 +1,23 @@
 """
 Word (.docx) report generator for the AWS Weekly Status Report.
 
-Replicates the client's reference Word document layout (see
-REFERENCE_DOC_TEXT.txt) using python-docx. The document is built in the
-following order:
+Replicates the client's reference Word document per-account layout (see
+REFERENCE_DOC_TEXT.txt) using python-docx. The report is scoped to a SINGLE
+account - JUST UDO AVIATION PRIVATE LIMITED (Fly91) - so the multi-account
+"Cost Summary Difference of All AWS Accounts" fleet table is NOT produced. The
+document is built in the following order:
 
     1. Cover page (report title, client org, "Submitted By", submitter org,
-       report date).
-    2. "Cost Summary Difference of All AWS Accounts" master table, ending with
-       a "Total Cost" row (with up/down arrow indicators) and a week-over-week
-       cost-difference note.
-    3. "security best practices" two-column Content | Link table (8 reference
+       report date, reporting period).
+    2. "security best practices" two-column Content | Link table (8 reference
        links verbatim).
-    4. Per-account "Summary" sections (Billing and Cost Overview + optional
-       Resource Utilization & Alarms table).
-    5. Trailer line "-- End Of Document --".
+    3. Per-account "Summary" section (Billing and Cost Overview + optional
+       Resource Utilization & Alarms table) for the single Fly91 account.
+    4. Trailer line "-- End Of Document --".
 
-The reference is a multi-account report; the sections are driven by an
-`accounts` list supplied in `collected_data["word_accounts"]`. The generator
-mirrors the orchestration / graceful-degradation style of
+The sections are driven by an `accounts` list supplied in
+`collected_data["word_accounts"]` (a single-element list in single-account
+scope). The generator mirrors the orchestration / graceful-degradation style of
 report/excel_generator.py: each section is wrapped in try/except so a failure
 in one section logs a warning and the rest of the document is still produced.
 
@@ -92,10 +91,10 @@ class WordReport:
 
     DEFAULT_WORD_CONFIG = {
         "report_title": "Weekly Status Report",
-        "client_org": "Insync Analytics",
+        "client_org": "JUST UDO AVIATION PRIVATE LIMITED (Fly91)",
         "submitted_by_label": "Submitted By",
-        "submitter_org": "Operisoft Technologies Pvt Ltd",
-        "activity_org": "Operisoft",
+        "submitter_org": "Greatworx",
+        "activity_org": "Greatworx",
         "word_output_filename": "Weekly_Status_Report.docx",
     }
 
@@ -152,8 +151,6 @@ class WordReport:
 
         sections = [
             ("Cover page", self._build_cover, {"doc": doc}),
-            ("Cost summary table", self._build_cost_summary,
-             {"doc": doc, "accounts": accounts}),
             ("Security best practices", self._build_security_best_practices,
              {"doc": doc}),
             ("Per-account summaries", self._build_account_summaries,
@@ -215,9 +212,10 @@ class WordReport:
 
     def _resolve_accounts(self, collected_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Resolve the list of accounts driving the multi-account layout.
+        Resolve the account(s) driving the per-account summary section.
 
-        Priority:
+        The report is single-account scoped, so this normally yields a
+        one-element list. Priority:
             1. collected_data["word_accounts"] (mock mode supplies this).
             2. config["word_report"]["accounts"] if present.
             3. A single account synthesised from the real collected cost data
@@ -329,6 +327,10 @@ class WordReport:
         doc.add_page_break()
 
     def _build_cost_summary(self, doc, accounts: List[Dict[str, Any]]) -> None:
+        # NOTE: Retained for reference only. The report is single-account
+        # scoped, so this multi-account fleet table is NOT invoked by
+        # generate(). Per-account cost figures are rendered in
+        # _build_account_summaries instead.
         doc.add_heading("Cost Summary Difference of All AWS Accounts", level=1)
 
         headers = [

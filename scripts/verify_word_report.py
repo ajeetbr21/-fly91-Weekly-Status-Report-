@@ -57,9 +57,10 @@ def main() -> int:
     checks = [
         ("cover report title", "Weekly Status Report" in all_para),
         ("submitted-by label", "Submitted By" in all_para),
-        ("cost summary heading",
-         any("Cost Summary Difference of All AWS Accounts" in p for p in paras)),
-        ("Total Cost row", "Total Cost" in all_cell),
+        ("Fly91 client name present",
+         "JUST UDO AVIATION PRIVATE LIMITED (Fly91)" in full),
+        ("submitter/activity org (Greatworx) present", "Greatworx" in full),
+        ("account id 674351849978 present", "674351849978" in full),
         ("security best practices heading",
          any("security best practices" in p for p in paras)),
         ("per-account Summary section", any(p.strip() == "Summary" for p in paras)),
@@ -69,6 +70,10 @@ def main() -> int:
         ("alarm table headers",
          "Server Name" in all_cell and "Alert date and no. of trigger" in all_cell),
         ("End Of Document trailer", "End Of Document" in all_para),
+        # NEGATIVE: single-account scope must NOT include the multi-account
+        # fleet table heading.
+        ("no multi-account fleet table (single-account scope)",
+         "Cost Summary Difference of All AWS Accounts" not in full),
     ]
     for name, link in [("link: " + lk, lk in all_cell) for lk in REQUIRED_LINKS]:
         checks.append((name, link))

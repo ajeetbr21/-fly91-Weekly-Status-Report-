@@ -14,8 +14,10 @@ and no ``config.word_report.accounts``), so it drives:
     ``cpu_max`` exceeds ``thresholds.cpu_warning`` into a CPU-proxy alarm row.
 
 It then loads the generated .docx back with python-docx and asserts that the
-Cost Summary table lists exactly one account (one data row + the Total Cost
-row) and that the CPU-proxy alarm row is present.
+single per-account Summary section renders the synthesised account (via its
+"<name> - <account_id>" header line) and that the CPU-proxy alarm row is
+present. The report is single-account scoped, so the multi-account "Cost
+Summary Difference of All AWS Accounts" fleet table must NOT appear.
 
 Usage:
     python3 scripts/verify_word_live_fallback.py [--keep <out.docx>]
@@ -80,15 +82,6 @@ def _build_live_shaped_data():
     }
 
 
-def _cost_summary_table(doc):
-    """Return the Cost Summary table (first table whose header has 'Account Name')."""
-    for table in doc.tables:
-        header_cells = [c.text for c in table.rows[0].cells]
-        if "Account Name" in header_cells and "Account ID" in header_cells:
-            return table
-    return None
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--keep", default=None,
@@ -116,21 +109,25 @@ def main() -> int:
 
         checks = []
 
-        # 1. Cost Summary table has exactly ONE account data row + Total Cost row.
-        table = _cost_summary_table(doc)
-        checks.append(("cost summary table present", table is not None))
-        if table is not None:
-            # rows = header + N account rows + Total Cost row
-            data_rows = table.rows[1:]
-            total_rows = [r for r in data_rows if r.cells[1].text.strip() == "Total Cost"]
-            account_rows = [r for r in data_rows
-                            if r.cells[1].text.strip() and r.cells[1].text.strip() != "Total Cost"]
-            checks.append(("exactly one account row", len(account_rows) == 1))
-            checks.append(("Total Cost row present", len(total_rows) == 1))
-            if account_rows:
-                acct_name = account_rows[0].cells[1].text.strip()
-                checks.append(("account name is configured client_name",
-                               acct_name == "Fly91 Primary"))
+        all_para_text = "\n".join(p.text for p in doc.paragraphs)
+
+        # 1. Single per-account Summary section renders the synthesised account.
+        checks.append(("per-account Summary section",
+                       any(p.text.strip() == "Summary" for p in doc.paragraphs)))
+        checks.append(("synthesised account header (name - id)",
+                       "Fly91 Primary - 123456789012" in all_para_text))
+        checks.append(("Billing and Cost Overview section",
+                       "Billing and Cost Overview" in all_para_text))
+        # Single-account scope: NO multi-account fleet table / Total Cost row.
+        all_cell_pre = "\n".join(
+            cell.text
+            for t in doc.tables for row in t.rows for cell in row.cells
+        )
+        full_pre = all_para_text + "\n" + all_cell_pre
+        checks.append(("no multi-account fleet table",
+                       "Cost Summary Difference of All AWS Accounts" not in full_pre))
+        checks.append(("no multi-account Total Cost row",
+                       "Total Cost" not in all_cell_pre))
 
         # 2. CPU-proxy alarm row appears for the over-threshold instance.
         all_cell_text = "\n".join(
@@ -147,7 +144,6 @@ def main() -> int:
                        "idle-box" not in all_cell_text))
 
         # 3. Resource Utilization & Alarms heading present (alarms were produced).
-        all_para_text = "\n".join(p.text for p in doc.paragraphs)
         checks.append(("Resource Utilization & Alarms heading",
                        "Resource Utilization & Alarms" in all_para_text))
 
