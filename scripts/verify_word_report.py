@@ -48,6 +48,9 @@ def main() -> int:
     parser.add_argument("path", help="Path to the generated .docx")
     parser.add_argument("--contains", nargs="*", default=[],
                         help="Extra substrings that must appear anywhere in the document")
+    parser.add_argument("--min-images", type=int, default=0,
+                        help="Minimum number of embedded images (inline shapes) that must "
+                             "be present. Defaults to 0 so legacy image-less reports pass.")
     args = parser.parse_args()
 
     doc = Document(args.path)
@@ -77,6 +80,11 @@ def main() -> int:
     ]
     for name, link in [("link: " + lk, lk in all_cell) for lk in REQUIRED_LINKS]:
         checks.append((name, link))
+    if args.min_images > 0:
+        image_count = len(doc.inline_shapes)
+        checks.append(
+            ("embedded images >= %d (found %d)" % (args.min_images, image_count),
+             image_count >= args.min_images))
     for extra in args.contains:
         checks.append(("contains '%s'" % extra, extra in full))
 
