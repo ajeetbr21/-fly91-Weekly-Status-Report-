@@ -31,6 +31,19 @@ class RDSSheet:
         "Max Database Connection (Count)",
     ]
 
+    @staticmethod
+    def _pct_cell(display, numeric):
+        """Resolve a utilisation cell.
+
+        Prefers an already-formatted display string (e.g. "3.78%"); falls
+        back to the numeric cpu_* value rendered with a trailing "%".
+        """
+        if display is not None and display != "":
+            return display
+        if numeric is not None:
+            return f"{numeric}%"
+        return "-"
+
     def generate(self, wb, rds_data, styles=None):
         styles = styles or ReportStyles
         ws = wb.create_sheet(self.SHEET_NAME)
@@ -61,32 +74,54 @@ class RDSSheet:
 
         for i, db in enumerate(rds_data):
             even = i % 2 == 0
-            
-            # Format Free Memory
-            free_mem = db.get("free_memory_bytes")
-            tot_mem = db.get("total_memory_gb")
-            if free_mem is not None and tot_mem is not None:
-                free_mem_gb = free_mem / (1024 ** 3)
-                mem_str = f"{free_mem_gb:.2f}GB out of {tot_mem} GB"
-            else:
-                mem_str = "-"
-                
-            # Format Free Storage
-            free_stg = db.get("free_storage_bytes")
-            tot_stg = db.get("allocated_storage_gb")
-            if free_stg is not None and tot_stg is not None:
-                free_stg_gb = free_stg / (1024 ** 3)
-                stg_str = f"{free_stg_gb:.1f}GB out of {tot_stg} GB"
-            else:
-                stg_str = "-"
+
+            # RDS Name: prefer display "name", fall back to "db_identifier".
+            name = db.get("name") or db.get("db_identifier") or "-"
+
+            # Down Time: prefer display "down_time", fall back to "No".
+            down_time = db.get("down_time") or "No"
+
+            # Instance type: prefer display "instance_type", fall back to
+            # the numeric/production "instance_class".
+            instance_type = db.get("instance_type") or db.get("instance_class") or "-"
+
+            # Utilisation: prefer the already-formatted display strings
+            # (e.g. "3.78%"); fall back to numeric cpu_* with a "%" suffix.
+            min_util = self._pct_cell(db.get("min_utilization"), db.get("cpu_min"))
+            max_util = self._pct_cell(db.get("max_utilization"), db.get("cpu_max"))
+            avg_util = self._pct_cell(db.get("avg_utilization"), db.get("cpu_avg"))
+
+            # Free Memory: prefer display "free_memory"; fall back to the
+            # computed "X GB out of Y GB" from free_memory_bytes/total_memory_gb.
+            mem_str = db.get("free_memory")
+            if not mem_str:
+                free_mem = db.get("free_memory_bytes")
+                tot_mem = db.get("total_memory_gb")
+                if free_mem is not None and tot_mem is not None:
+                    free_mem_gb = free_mem / (1024 ** 3)
+                    mem_str = f"{free_mem_gb:.2f}GB out of {tot_mem} GB"
+                else:
+                    mem_str = "-"
+
+            # Free Storage: prefer display "free_storage"; fall back to the
+            # computed string from free_storage_bytes/allocated_storage_gb.
+            stg_str = db.get("free_storage")
+            if not stg_str:
+                free_stg = db.get("free_storage_bytes")
+                tot_stg = db.get("allocated_storage_gb")
+                if free_stg is not None and tot_stg is not None:
+                    free_stg_gb = free_stg / (1024 ** 3)
+                    stg_str = f"{free_stg_gb:.1f}GB out of {tot_stg} GB"
+                else:
+                    stg_str = "-"
 
             row_data = [
-                db.get("db_identifier", "-"),
-                "No",  # Down Time
-                db.get("instance_class", "-"),
-                f"{db.get('cpu_min', '-')}%" if db.get('cpu_min') is not None else "-",
-                f"{db.get('cpu_max', '-')}%" if db.get('cpu_max') is not None else "-",
-                f"{db.get('cpu_avg', '-')}%" if db.get('cpu_avg') is not None else "-",
+                name,
+                down_time,
+                instance_type,
+                min_util,
+                max_util,
+                avg_util,
                 mem_str,
                 stg_str,
             ]
@@ -114,16 +149,39 @@ class RDSSheet:
 
         for i, db in enumerate(rds_data):
             even = i % 2 == 0
-            
-            tx = db.get("network_tx_bytes_sec")
-            rx = db.get("network_rx_bytes_sec")
-            conn = db.get("db_connections")
+
+            name = db.get("name") or db.get("db_identifier") or "-"
+
+            # Network throughput: prefer display strings
+            # (e.g. "817.54 KB"); fall back to numeric *_bytes_sec via
+            # format_bytes.
+            tx_disp = db.get("network_transmit_throughput")
+            if not tx_disp:
+                tx = db.get("network_tx_bytes_sec")
+                tx_disp = styles.format_bytes(tx) if tx is not None else "-"
+
+            rx_disp = db.get("network_receive_throughput")
+            if not rx_disp:
+                rx = db.get("network_rx_bytes_sec")
+                rx_disp = styles.format_bytes(rx) if rx is not None else "-"
+
+            # Max DB connections: prefer display "max_db_connections"; fall
+            # back to numeric "db_connections".
+            conn = db.get("max_db_connections")
+            if conn is None:
+                conn = db.get("db_connections")
+            if conn is None:
+                conn_str = "-"
+            elif isinstance(conn, (int, float)):
+                conn_str = f"{conn:,.0f}"
+            else:
+                conn_str = str(conn)
 
             row_data = [
-                db.get("db_identifier", "-"),
-                styles.format_bytes(tx) if tx is not None else "-",
-                styles.format_bytes(rx) if rx is not None else "-",
-                f"{conn:,.0f}" if conn is not None else "-",
+                name,
+                tx_disp,
+                rx_disp,
+                conn_str,
             ]
             styles.apply_data_row(ws, row, row_data, even=even)
             row += 1
