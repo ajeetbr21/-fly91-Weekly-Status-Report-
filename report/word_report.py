@@ -339,7 +339,9 @@ class WordReport:
         bg_path = self._asset_path("cover_background")
         if bg_path:
             try:
-                self._add_full_page_background(doc, bg_path)
+                bg_img = screenshots.safe_image_for_embedding(bg_path)
+                if bg_img is not None:
+                    self._add_full_page_background(doc, bg_img)
             except Exception as exc:
                 logger.warning("Failed to add cover background: %s", exc)
 
@@ -365,8 +367,10 @@ class WordReport:
             logo_path = self._asset_path("logo")
             if logo_path:
                 try:
-                    run = logo_para.add_run()
-                    run.add_picture(logo_path, width=Inches(1.8))
+                    logo_img = screenshots.safe_image_for_embedding(logo_path)
+                    if logo_img is not None:
+                        run = logo_para.add_run()
+                        run.add_picture(logo_img, width=Inches(1.8))
                 except Exception as exc:
                     logger.warning("Failed to embed cover logo: %s", exc)
         except Exception as exc:
@@ -405,17 +409,18 @@ class WordReport:
         # Cover ends with a page break so Cost Summary starts on page 2.
         doc.add_page_break()
 
-    def _add_full_page_background(self, doc, image_path: str) -> None:
-        """Place *image_path* as a behind-text floating drawing sized to the
-        full page. python-docx limitation: this is NOT a true full-bleed
-        print background; it is an anchored wp:anchor drawing with behindDoc=1
-        sized to the Letter page. Documented in the README.
+    def _add_full_page_background(self, doc, image_source) -> None:
+        """Place *image_source* as a behind-text floating drawing sized to the
+        full page. *image_source* may be a path string or a file-like object
+        (e.g. a downscaled BytesIO). python-docx limitation: this is NOT a true
+        full-bleed print background; it is an anchored wp:anchor drawing with
+        behindDoc=1 sized to the Letter page. Documented in the README.
         """
         # First embed the picture inline (so the image part + relationship are
         # created), then convert that inline drawing into a behindDoc anchor.
         para = doc.add_paragraph()
         run = para.add_run()
-        pic = run.add_picture(image_path, width=Inches(8.5), height=Inches(11))
+        pic = run.add_picture(image_source, width=Inches(8.5), height=Inches(11))
         inline = run._r.find(qn("w:drawing"))[0]  # wp:inline
         # Build a wp:anchor element reusing the inline's extent/graphic.
         anchor = OxmlElement("wp:anchor")
@@ -594,7 +599,10 @@ class WordReport:
         overview = self._asset_path("cost_overview")
         if overview:
             try:
-                doc.add_picture(overview, width=Inches(6))
+                overview_img = screenshots.safe_image_for_embedding(overview)
+                if overview_img is None:
+                    return
+                doc.add_picture(overview_img, width=Inches(6))
                 cap = doc.add_paragraph()
                 cap_run = cap.add_run(
                     "Cost Explorer overview - %s" % self._current_range_str())
@@ -1177,7 +1185,10 @@ class WordReport:
             if not asset_path:
                 continue
             try:
-                doc.add_picture(asset_path, width=Inches(6))
+                asset_img = screenshots.safe_image_for_embedding(asset_path)
+                if asset_img is None:
+                    continue
+                doc.add_picture(asset_img, width=Inches(6))
                 cap = doc.add_paragraph()
                 cap_run = cap.add_run("%s Findings" % sev_label)
                 cap_run.italic = True
@@ -1263,8 +1274,10 @@ class WordReport:
         gd_asset = self._asset_path("guardduty")
         if gd_asset:
             try:
-                doc.add_picture(gd_asset, width=Inches(6))
-                return
+                gd_img = screenshots.safe_image_for_embedding(gd_asset)
+                if gd_img is not None:
+                    doc.add_picture(gd_img, width=Inches(6))
+                    return
             except Exception as exc:
                 logger.warning("Failed to embed GuardDuty asset '%s': %s",
                                gd_asset, exc)

@@ -832,31 +832,26 @@ def main():
     default_docx = word_cfg.get('word_output_filename', 'Weekly_Status_Report.docx')
 
     explicit_output = args.output
-    if explicit_output and explicit_output.lower().endswith('.docx'):
-        # --output points at a Word file; use it for docx, keep default for xlsx.
+    if not explicit_output:
+        # No --output given: keep the config-default filenames per format.
         xlsx_output = default_xlsx
-        docx_output = explicit_output
-        # Warn if a .docx path was given but Word output will not be generated.
-        if output_format == 'xlsx':
-            logger.warning(
-                f"--output '{explicit_output}' has a .docx suffix but "
-                f"--format is 'xlsx'; the .docx path will be ignored and the "
-                f"Excel report will be written to '{default_xlsx}'. "
-                f"Use --format docx or --format both to produce a Word file."
-            )
-    else:
-        xlsx_output = explicit_output or default_xlsx
         docx_output = default_docx
-        # Warn if an .xlsx (or other non-docx) path was given but only Word
-        # output will be generated.
-        if (output_format == 'docx' and explicit_output
-                and not explicit_output.lower().endswith('.docx')):
-            logger.warning(
-                f"--output '{explicit_output}' does not have a .docx suffix "
-                f"but --format is 'docx'; the Word report will be written to "
-                f"'{default_docx}' and '{explicit_output}' will be ignored. "
-                f"Use a .docx --output path, or --format xlsx or both."
-            )
+    else:
+        lower = explicit_output.lower()
+        if lower.endswith('.docx'):
+            # Explicit Word path: use it for docx, derive the xlsx sibling by
+            # swapping the extension so --format both produces both files.
+            docx_output = explicit_output
+            xlsx_output = explicit_output[:-len('.docx')] + '.xlsx'
+        elif lower.endswith('.xlsx'):
+            # Explicit Excel path: use it for xlsx, derive the docx sibling.
+            xlsx_output = explicit_output
+            docx_output = explicit_output[:-len('.xlsx')] + '.docx'
+        else:
+            # No recognised extension: treat --output as a base stem and
+            # append the correct extension for each format.
+            xlsx_output = explicit_output + '.xlsx'
+            docx_output = explicit_output + '.docx'
 
     logger.info(f"Output format: {output_format}")
     if output_format in ('xlsx', 'both'):

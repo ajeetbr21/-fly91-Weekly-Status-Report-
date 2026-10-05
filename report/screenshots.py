@@ -95,6 +95,86 @@ def _text_size(draw, text, font):
             return len(text) * 7, 12
 
 
+# Maximum pixel dimension (largest side) for any image embedded into a
+# report. Oversized assets are downscaled to this cap so the embedded pixel
+# count stays well under Pillow's DecompressionBomb limit (~89.5M px) and the
+# image is a sensible size for a document.
+_MAX_EMBED_DIMENSION = 2000
+
+
+def safe_image_for_embedding(
+    path: str,
+    max_dimension: int = _MAX_EMBED_DIMENSION,
+) -> Optional[BytesIO]:
+    """Load an on-disk image and return a safe-to-embed PNG ``BytesIO``.
+
+    Guards against Pillow ``DecompressionBombWarning`` / ``DecompressionBombError``
+    on oversized images (e.g. a user drops a huge screenshot into ``assets/``):
+    the image is downscaled so its largest dimension is at most
+    *max_dimension*, keeping the pixel count well under Pillow's safety limit.
+
+    The function degrades gracefully, mirroring the rest of this module: if
+    Pillow is unavailable or anything goes wrong it logs a warning and returns
+    ``None`` so the caller can skip that single image instead of aborting the
+    report.
+
+    Parameters
+    ----------
+    path : str
+        Path to the source image on disk.
+    max_dimension : int, optional
+        Maximum allowed size (in pixels) for the largest side of the returned
+        image. Defaults to :data:`_MAX_EMBED_DIMENSION`.
+
+    Returns
+    -------
+    io.BytesIO | None
+        A ``BytesIO`` positioned at 0 containing PNG bytes, or ``None`` if the
+        image could not be safely loaded.
+    """
+    if not _PIL_AVAILABLE:
+        logger.warning(
+            "Skipping image '%s' - Pillow is not installed.", path
+        )
+        return None
+
+    # Temporarily raise Pillow's decompression-bomb guard only so we can OPEN
+    # the file to inspect/downscale it. We never leave it disabled, and we
+    # always downscale oversized images rather than embedding them raw.
+    prev_limit = getattr(Image, "MAX_IMAGE_PIXELS", None)
+    try:
+        try:
+            Image.MAX_IMAGE_PIXELS = None  # allow opening to downscale
+            with Image.open(path) as im:
+                im.load()
+                src = im.convert("RGB") if im.mode not in ("RGB", "RGBA") else im.copy()
+        finally:
+            Image.MAX_IMAGE_PIXELS = prev_limit
+
+        width, height = src.size
+        largest = max(width, height)
+        if largest > max_dimension and largest > 0:
+            scale = float(max_dimension) / float(largest)
+            new_size = (
+                max(1, int(width * scale)),
+                max(1, int(height * scale)),
+            )
+            resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS",
+                               getattr(Image, "LANCZOS", 1))
+            src = src.resize(new_size, resample)
+
+        buf = BytesIO()
+        src.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
+    except Exception as exc:
+        logger.warning(
+            "Failed to load image '%s' for embedding - skipping: %s",
+            path, exc
+        )
+        return None
+
+
 def render_findings_table(
     title: str,
     headers: Sequence[str],
