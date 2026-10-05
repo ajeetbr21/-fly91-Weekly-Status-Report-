@@ -89,7 +89,7 @@ class EC2Sheet:
                     styles.safe_float(inst.get("cpu_min")),
                     styles.safe_float(inst.get("cpu_max")),
                     styles.safe_float(inst.get("cpu_avg")),
-                    styles.safe_float(inst.get("memory_max")),
+                    styles.memory_cell(inst),
                     inst.get("disk_utilization") or "-",
                 ]
                 styles.apply_data_row(ws, row, row_data, even=even)

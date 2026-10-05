@@ -353,3 +353,29 @@ class ReportStyles:
             return round(float(value), decimals)
         except (ValueError, TypeError):
             return default
+
+    @classmethod
+    def memory_cell(cls, inst, decimals=2, default="-"):
+        """Resolve the Memory Utilisation cell value for an EC2 instance.
+
+        Mirrors the Word report's memory helper so the Excel sheet and the
+        Word report render the same figure. Prefers an explicit
+        ``memory_avg_display`` string (reference/mock figures such as
+        "50.62"), then falls back to numeric ``memory_avg`` and
+        ``memory_max`` (populated by the AWS collector via CWAgent).
+
+        A numeric value (or a numeric-looking display string) is returned as a
+        rounded float so the existing conditional formatting still applies;
+        non-numeric values (e.g. "-") are returned as-is.
+        """
+        display = inst.get("memory_avg_display")
+        if display is not None and display != "":
+            as_float = cls.safe_float(display, decimals=decimals, default=None)
+            return as_float if as_float is not None else display
+        for key in ("memory_avg", "memory_max"):
+            value = inst.get(key)
+            if value is not None:
+                as_float = cls.safe_float(value, decimals=decimals, default=None)
+                if as_float is not None:
+                    return as_float
+        return default
